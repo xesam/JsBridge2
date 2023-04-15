@@ -1,0 +1,10 @@
+name: js_bridge_core
+description: Shared Dart core for the cross-platform JsBridge demo.
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.11.0
+
+dev_dependencies:
+  test: ^1.26.3

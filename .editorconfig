@@ -1,0 +1,49 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Java / Gradle (Android)
+[*.java]
+indent_style = space
+indent_size = 4
+
+[*.gradle]
+indent_style = space
+indent_size = 4
+
+# Swift (iOS)
+[*.swift]
+indent_style = space
+indent_size = 4
+
+# Dart (Flutter)
+[*.dart]
+indent_style = space
+indent_size = 2
+
+# ArkTS (HarmonyOS)
+[*.ets]
+indent_style = space
+indent_size = 2
+
+# TypeScript / JavaScript
+[*.ts]
+indent_style = space
+indent_size = 2
+
+[*.js]
+indent_style = space
+indent_size = 2
+
+# Config files
+[*.{json,json5,yaml,yml}]
+indent_style = space
+indent_size = 2
+
+# Markdown
+[*.md]
+trim_trailing_whitespace = false

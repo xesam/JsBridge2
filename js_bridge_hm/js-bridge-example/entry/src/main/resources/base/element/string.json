@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "module description"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "description"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "js_bridge_example"
+    },
+    {
+      "name": "location_permission_reason",
+      "value": "Used by the JsBridge demo to show native permission handling for current location."
+    }
+  ]
+}

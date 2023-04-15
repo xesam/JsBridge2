@@ -1,0 +1,9 @@
+{
+  "module": {
+    "name": "js_bridge_core",
+    "type": "har",
+    "deviceTypes": [
+      "phone"
+    ]
+  }
+}

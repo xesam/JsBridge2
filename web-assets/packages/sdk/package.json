@@ -1,0 +1,35 @@
+{
+  "name": "jsbridge-sdk",
+  "version": "0.1.0",
+  "description": "JS client SDK for JsBridge2 — cross-platform WebView bridge protocol",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/esm/index.js",
+      "types": "./dist/esm/index.d.ts"
+    }
+  },
+  "license": "MIT",
+  "author": "xesam",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xesam/JsBridge2.git",
+    "directory": "web-assets/packages/sdk"
+  },
+  "homepage": "https://github.com/xesam/JsBridge2",
+  "keywords": ["jsbridge", "webview", "native-bridge", "cross-platform", "android", "ios", "flutter", "harmonyos"],
+  "files": [
+    "dist/esm",
+    "src"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "prepublishOnly": "pnpm build"
+  },
+  "devDependencies": {
+    "esbuild": "catalog:",
+    "typescript": "catalog:",
+    "@babel/core": "catalog:",
+    "@babel/preset-env": "catalog:"
+  }
+}

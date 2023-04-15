@@ -1,0 +1,13 @@
+{
+  "name": "jsbridge-web",
+  "private": true,
+  "scripts": {
+    "build":         "pnpm -r build",
+    "sync":          "pnpm build && node scripts/deploy.mjs sync",
+    "check":         "node scripts/deploy.mjs check",
+    "clean:native":  "node scripts/deploy.mjs clean",
+    "clean:dist":    "pnpm -r --filter './packages/*' exec rm -rf dist",
+    "clean":         "pnpm clean:native && pnpm clean:dist",
+    "publish:sdk":   "pnpm --filter jsbridge-sdk publish"
+  }
+}

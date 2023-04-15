@@ -1,0 +1,11 @@
+packages:
+  - 'packages/*'
+
+allowBuilds:
+  esbuild: true
+
+catalog:
+  esbuild: '^0.25.0'
+  typescript: '^5.8.0'
+  '@babel/core': '^7.26.0'
+  '@babel/preset-env': '^7.26.0'
