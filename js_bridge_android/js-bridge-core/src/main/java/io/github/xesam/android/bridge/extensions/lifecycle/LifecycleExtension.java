@@ -3,15 +3,18 @@ package io.github.xesam.android.bridge.extensions.lifecycle;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.util.LinkedList;
 import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 import io.github.xesam.android.bridge.api.contract.BridgeApiContract;
 import io.github.xesam.android.bridge.JsBridge;
 
 public final class LifecycleExtension {
     private final JsBridge bridge;
-    private final Queue<JSONObject> pendingEvents = new LinkedList<>();
+    // 并发安全（C28/C29/C30）：offer 发生在宿主线程（onHostEvent），
+    // flushPending 由 addReadyListener 触发、跑在 transport 入站（握手）线程——
+    // 必须 ConcurrentLinkedQueue，普通 LinkedList 并发 offer/poll 会损坏内部链表
+    private final Queue<JSONObject> pendingEvents = new ConcurrentLinkedQueue<>();
     private final int maxPendingEvents;
     private int seq;
 

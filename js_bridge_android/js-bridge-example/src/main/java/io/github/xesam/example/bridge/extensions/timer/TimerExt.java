@@ -9,49 +9,51 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import io.github.xesam.android.bridge.api.model.BridgeError;
-import io.github.xesam.android.bridge.core.message.MessageHandlerCallback;
-import io.github.xesam.android.bridge.core.message.SimpleNativeMessageHandler;
+import io.github.xesam.android.bridge.api.model.TrustedPageContext;
+import io.github.xesam.android.bridge.core.handler.AsyncHandler;
+import io.github.xesam.android.bridge.core.handler.ResponseEmitter;
 import io.github.xesam.example.bridge.JsonPayloadParser;
 
-public class TimerExt implements SimpleNativeMessageHandler {
+public class TimerExt implements AsyncHandler {
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private final Random random = new Random();
     private ScheduledFuture<?> timerFuture;
-    private MessageHandlerCallback streamCallback;
+    private ResponseEmitter streamEmitter;
     private boolean running;
     private int seq;
 
     @Override
     public void handle(
-            Object data,
-            MessageHandlerCallback callback) {
-        Payload payload = new TimerPayloadParser().getPayload(data.toString());
-        String action = payload == null || payload.action == null ? "start" : payload.action;
+            TrustedPageContext context,
+            JSONObject payload,
+            ResponseEmitter emitter) {
+        Payload parsed = new TimerPayloadParser().getPayload(payload.toString());
+        String action = parsed == null || parsed.action == null ? "start" : parsed.action;
         if ("start".equals(action)) {
-            startTimer(callback);
+            startTimer(emitter);
             return;
         }
         if ("stop".equals(action)) {
-            stopTimer(callback);
+            stopTimer(emitter);
             return;
         }
-        callback.fail(new BridgeError("E_INVALID_PAYLOAD", "Timer action must be start or stop."));
+        emitter.fail(new BridgeError("E_INVALID_PAYLOAD", "Timer action must be start or stop."));
     }
 
-    private synchronized void startTimer(MessageHandlerCallback callback) {
+    private synchronized void startTimer(ResponseEmitter emitter) {
         if (running) {
-            callback.fail(new BridgeError("E_INVALID_PAYLOAD", "Timer is already running."));
+            emitter.fail(new BridgeError("E_INVALID_PAYLOAD", "Timer is already running."));
             return;
         }
         running = true;
-        streamCallback = callback;
+        streamEmitter = emitter;
         timerFuture = scheduler.scheduleAtFixedRate(() -> {
-            MessageHandlerCallback currentCallback;
+            ResponseEmitter currentEmitter;
             synchronized (TimerExt.this) {
-                if (!running || streamCallback == null) {
+                if (!running || streamEmitter == null) {
                     return;
                 }
-                currentCallback = streamCallback;
+                currentEmitter = streamEmitter;
             }
             JSONObject tick = new JSONObject();
             try {
@@ -60,14 +62,14 @@ public class TimerExt implements SimpleNativeMessageHandler {
                 tick.put("seq", ++seq);
                 tick.put("running", true);
             } catch (Exception e) {
-                currentCallback.fail(new BridgeError("E_INTERNAL", "Failed to build timer payload."));
+                currentEmitter.fail(new BridgeError("E_INTERNAL", "Failed to build timer payload."));
                 return;
             }
-            currentCallback.success(tick, false);
-        }, 3, 3, TimeUnit.SECONDS);
+            currentEmitter.success(tick, false);
+        }, 0, 1, TimeUnit.SECONDS);
     }
 
-    private synchronized void stopTimer(MessageHandlerCallback callback) {
+    private synchronized void stopTimer(ResponseEmitter emitter) {
         if (!running) {
             JSONObject payload = new JSONObject();
             try {
@@ -75,7 +77,7 @@ public class TimerExt implements SimpleNativeMessageHandler {
                 payload.put("running", false);
             } catch (Exception ignored) {
             }
-            callback.success(payload);
+            emitter.success(payload, true);
             return;
         }
 
@@ -84,8 +86,8 @@ public class TimerExt implements SimpleNativeMessageHandler {
             timerFuture.cancel(false);
             timerFuture = null;
         }
-        MessageHandlerCallback previousStreamCallback = streamCallback;
-        streamCallback = null;
+        ResponseEmitter previousStreamEmitter = streamEmitter;
+        streamEmitter = null;
 
         JSONObject stopEvent = new JSONObject();
         try {
@@ -93,10 +95,10 @@ public class TimerExt implements SimpleNativeMessageHandler {
             stopEvent.put("running", false);
         } catch (Exception ignored) {
         }
-        if (previousStreamCallback != null) {
-            previousStreamCallback.success(stopEvent, true);
+        if (previousStreamEmitter != null) {
+            previousStreamEmitter.success(stopEvent, true);
         }
-        callback.success(stopEvent);
+        emitter.success(stopEvent, true);
     }
 
     public static class TimerPayloadParser extends JsonPayloadParser<Payload> {

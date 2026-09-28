@@ -1,14 +1,17 @@
 {
   "name": "jsbridge-sdk",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "JS client SDK for JsBridge2 — cross-platform WebView bridge protocol",
   "type": "module",
   "exports": {
     ".": {
+      "types": "./dist/esm/index.d.ts",
       "import": "./dist/esm/index.js",
-      "types": "./dist/esm/index.d.ts"
+      "default": "./dist/esm/index.js"
     }
   },
+  "unpkg": "./dist/iife/jsbridge-sdk.js",
+  "jsdelivr": "./dist/iife/jsbridge-sdk.js",
   "license": "MIT",
   "author": "xesam",
   "repository": {
@@ -20,6 +23,7 @@
   "keywords": ["jsbridge", "webview", "native-bridge", "cross-platform", "android", "ios", "flutter", "harmonyos"],
   "files": [
     "dist/esm",
+    "dist/iife",
     "src"
   ],
   "scripts": {

@@ -1,7 +1,7 @@
 # 第 4 章：实现最小分发器
 
-## 本章目标
-把“写死调用逻辑”升级为“可注册、可扩展”的方法分发机制。
+## 目标
+把"写死调用逻辑"升级为"可注册、可扩展"的方法分发机制。
 
 ## 从 if-else 到 handler 注册
 初期代码常见写法：
@@ -9,30 +9,31 @@
 if ("getUser".equals(method)) { ... }
 else if ("pickImage".equals(method)) { ... }
 ```
-
-这种方式短期可用，但扩展性差。更好的方式是“路由表”：
-- key：`method`
-- value：handler 实例
+更好的方式是"路由表"：key 为 `method`，value 为 handler 实例。
 
 ## 核心接口
-本仓库把 handler 接口分成两个，对应“是否需要页面上下文”：
+本仓库把 handler 接口分成两个，对应"单帧"与"多帧"两种回包形态。**两者的第一个形参都是 `TrustedPageContext`**（可信页面上下文，第 8 章给出它的来源）——上下文是普通形参，不是独立的注册形态：
 
 ```java
-// 与页面解耦：只关心 payload。绝大多数业务用这个。
-public interface SimpleNativeMessageHandler {
-    void handle(Object data, MessageHandlerCallback callback);
+// 单返回值：通信在 handler 返回时结束，恰好产生一帧（done 恒为 true）。绝大多数业务用这个。
+public interface SimpleHandler {
+    Object handle(TrustedPageContext context, Object payload) throws Exception;
 }
 
-// 需要可信页面上下文（origin / pageInstanceId）的场景，第 8 章引入。
-public interface NativeMessageHandler {
-    void handle(TrustedPageContext trustedPageContext, Object data, MessageHandlerCallback callback);
+// 多帧/异步：带 ResponseEmitter，可在返回后继续推帧，第 5 章展开。
+public interface AsyncHandler {
+    void handle(TrustedPageContext context, Object payload, ResponseEmitter emitter) throws Exception;
 }
 ```
 
-注册 API 与所在层级有关：
-- `CoreBridge.registerHandler(String method, SimpleNativeMessageHandler handler)`——Tier 1 内核的原始注册口（第 6 章）。
-- `JsBridge.registerNativeHandler(String method, SimpleNativeMessageHandler handler)`——Tier 2 对同一能力的公开转发。
-- `JsBridge.registerNativeHandlerWithContext(String method, NativeMessageHandler handler)`——带上下文 handler 的注册口。
+> **演进说明**：早期设计常见"payload-only 入口 + 带上下文入口"两个注册 API，调用方要按是否需要上下文二选一。本仓库把上下文统一为两个接口的首形参，注册入口因此收敛为下面的两个。
+
+## 注册 API 与所在层级
+- `CoreBridge.registerSimpleHandler(String method, SimpleHandler handler)`——Tier 1 内核的原始注册口（第 6 章）。
+- `CoreBridge.registerAsyncHandler(String method, AsyncHandler handler)`——Tier 1 内核的多帧注册口（第 6 章）。
+- `JsBridge.registerSimpleHandler(String method, SimpleHandler handler)` / `JsBridge.registerAsyncHandler(String method, AsyncHandler handler)`——Tier 2 对同一能力的公开转发。
+
+两个入口共用同一张 handler 表：**同一 method 重复注册时后者覆盖前者（last wins）**。
 
 ## 分发流程
 1. 解析 `BridgeMessage`（`fromJson` 失败得到 `null`，直接静默丢弃）。
@@ -42,10 +43,10 @@ public interface NativeMessageHandler {
 
 ## 示例
 ```java
-bridge.registerNativeHandler("getUser", (data, cb) -> {
+bridge.registerSimpleHandler("getUser", (ctx, payload) -> {
     JSONObject user = new JSONObject();
     user.put("name", "Sam");
-    cb.success(user);
+    return user;   // 返回即结束，内核封装成唯一一帧成功响应
 });
 ```
 
@@ -59,6 +60,3 @@ bridge.registerNativeHandler("getUser", (data, cb) -> {
 1. 分发层直接依赖页面 UI 组件。
 2. handler 抛异常后没有标准回包。
 3. 使用全局静态 Map，生命周期不可控——handler 表应是 bridge 实例状态。
-
-## 小结
-你已经有了“协议 + 分发”的最小桥接骨架。第 5 章我们补齐异步回调语义，让它能处理真实业务。

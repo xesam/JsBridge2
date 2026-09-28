@@ -8,8 +8,9 @@ import androidx.annotation.Nullable;
 public final class WebMessagePortMessageChannel implements MessageChannel {
     private final WebMessagePort port;
 
+    /** 跨线程可见：UI 线程写（setListener）、Chromium 回调线程读（onMessage）。 */
     @Nullable
-    private Listener listener;
+    private volatile Listener listener;
 
     public WebMessagePortMessageChannel(WebMessagePort port) {
         this.port = port;

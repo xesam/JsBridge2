@@ -1,34 +1,33 @@
 (function(global) {
-    const { BridgeClient, BridgeProtocol, createNativeTransport,
-            createSessionApi, createReadyExtension, createLifecycleBridge,
+    const { CoreBridgeClient, BridgeProtocol, createNativeTransport,
+            createJsBridgeClient, createReadyExtension, createLifecycleBridge,
             registerWebEntry } = window.JsBridgeSDK
     const readyStateNode = document.getElementById('readyState')
     const sessionStateNode = document.getElementById('sessionState')
     const transport = createNativeTransport()
-    const bridgeClient = new BridgeClient(transport)
-    const sessionApi = createSessionApi(bridgeClient, {
+    const coreBridgeClient = new CoreBridgeClient(transport)
+    const jsBridgeClient = createJsBridgeClient(coreBridgeClient, {
         readyMethod: BridgeProtocol.METHOD_HANDSHAKE
     })
-    const lifecycleBridge = createLifecycleBridge(bridgeClient, {
+    const lifecycleBridge = createLifecycleBridge(coreBridgeClient, {
         lifecycleMethod: BridgeProtocol.METHOD_LIFECYCLE_STATE
     })
-    const readyExtension = createReadyExtension(sessionApi, {
+    const readyExtension = createReadyExtension(jsBridgeClient, {
         readyMethod: BridgeProtocol.METHOD_HANDSHAKE
     })
 
-    registerWebEntry(bridgeClient, transport)
+    registerWebEntry(coreBridgeClient, transport)
     global.bridgeLifecycle = lifecycleBridge
 
-    const bizApi = createBizApi(sessionApi)
+    const bizApi = createBizApi(jsBridgeClient)
     const demoPage = bindDemoPage(bizApi)
     bindLifecycleDisplay(lifecycleBridge)
 
     readyExtension.bootstrapReady({
         onSuccess(res) {
             readyStateNode.innerText = 'ready: true'
-            sessionStateNode.innerText = `session: ${sessionApi.getSessionId() || '-'}`
-            const capabilities = Array.isArray(res && res.capabilities) ? res.capabilities : []
-            demoPage.setEnabledCapabilities(capabilities)
+            sessionStateNode.innerText = `session: ${jsBridgeClient.getSessionId() || '-'}`
+            demoPage.setActionsEnabled(true)
         },
         onFail(error) {
             readyStateNode.innerText = 'ready: false'

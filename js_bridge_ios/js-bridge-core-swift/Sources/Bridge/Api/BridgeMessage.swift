@@ -1,12 +1,12 @@
 import Foundation
 
-public enum BridgeMessageKind: String, Codable {
+public enum BridgeMessageKind: String, Codable, Sendable {
     case request
     case response
     case event
 }
 
-public enum JSONValue: Codable, Equatable {
+public enum JSONValue: Codable, Equatable, Sendable {
     case string(String)
     case number(Double)
     case bool(Bool)
@@ -50,51 +50,9 @@ public enum JSONValue: Codable, Equatable {
             try container.encodeNil()
         }
     }
-
-    public static func fromAny(_ value: Any?) -> JSONValue? {
-        guard let value else { return .null }
-        if value is NSNull { return .null }
-        if let value = value as? JSONValue { return value }
-        if let value = value as? String { return .string(value) }
-        if let value = value as? Bool { return .bool(value) }
-        if let value = value as? NSNumber {
-            if String(cString: value.objCType) == "c" {
-                return .bool(value.boolValue)
-            }
-            return .number(value.doubleValue)
-        }
-        if let value = value as? [String: Any] {
-            var object: [String: JSONValue] = [:]
-            for (key, anyValue) in value {
-                object[key] = JSONValue.fromAny(anyValue) ?? .null
-            }
-            return .object(object)
-        }
-        if let value = value as? [Any] {
-            return .array(value.map { JSONValue.fromAny($0) ?? .null })
-        }
-        return nil
-    }
-
-    public func toAny() -> Any {
-        switch self {
-        case .string(let value):
-            return value
-        case .number(let value):
-            return value
-        case .bool(let value):
-            return value
-        case .object(let value):
-            return value.mapValues { $0.toAny() }
-        case .array(let value):
-            return value.map { $0.toAny() }
-        case .null:
-            return NSNull()
-        }
-    }
 }
 
-public struct BridgeMessage: Codable, Equatable {
+public struct BridgeMessage: Codable, Equatable, Sendable {
     public var id: String
     public var sessionId: String
     public var kind: BridgeMessageKind
@@ -137,6 +95,26 @@ public struct BridgeMessage: Codable, Equatable {
         self.ok = ok
         self.error = error
         self.scopeId = scopeId
+    }
+
+    /// 自定义解码：`id`/`kind`/`method` 为必填（缺失或类型非法即丢弃整条消息）；
+    /// 其余字段缺失时取与其他三端一致的默认值（协议将 `timeoutMs`/`keep` 声明为可选，
+    /// v1 演进约定要求新增字段可被旧消息安全省略）。字段存在但类型不匹配时仍整条丢弃（fail-closed）。
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId) ?? ""
+        self.kind = try container.decode(BridgeMessageKind.self, forKey: .kind)
+        self.method = try container.decode(String.self, forKey: .method)
+        self.ts = try container.decodeIfPresent(Int64.self, forKey: .ts) ?? 0
+        self.timeoutMs = try container.decodeIfPresent(Int64.self, forKey: .timeoutMs) ?? 0
+        self.keep = try container.decodeIfPresent(Bool.self, forKey: .keep) ?? false
+        self.payload = try container.decodeIfPresent(JSONValue.self, forKey: .payload)
+        self.reqId = try container.decodeIfPresent(String.self, forKey: .reqId)
+        self.done = try container.decodeIfPresent(Bool.self, forKey: .done)
+        self.ok = try container.decodeIfPresent(Bool.self, forKey: .ok)
+        self.error = try container.decodeIfPresent(BridgeError.self, forKey: .error)
+        self.scopeId = try container.decodeIfPresent(String.self, forKey: .scopeId)
     }
 
     public static func fromJsonString(_ raw: String) -> BridgeMessage? {

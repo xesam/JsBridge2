@@ -1,15 +1,7 @@
 # 第 3 章：定义最小消息协议
 
-## 本章目标
-把“能传字符串”升级为“能传可维护的消息”。
-
-## 为什么必须有协议
-如果没有协议，你很快会遇到问题：
-- 多个请求并发时，响应不知道对应谁。
-- 错误格式各写各的，前端无法统一处理。
-- 后续扩展事件推送时，无从区分消息类型。
-
-协议就是通信双方的“语法规则”。
+## 目标
+把"能传字符串"升级为"能传可维护的消息"，解决三个问题：并发请求的响应匹配（`reqId`）、错误结构统一（`BridgeError`）、事件与响应的区分（`kind`）。
 
 ## 字段设计
 起步阶段只需要最小集：
@@ -21,7 +13,7 @@
 6. `ok`：响应是否成功。
 7. `error`：失败信息。
 
-但既然要定义协议，就一次定全。本项目 Protocol v1 的完整信封字段（见 `docs/01-protocol.md §2`）：
+但既然要定义协议，我们就一次定全。本项目 Protocol v1 的完整信封字段（见 `docs/03-protocol.md §2`）：
 
 | 字段 | 说明 | 引入章节 |
 |------|------|----------|
@@ -37,9 +29,9 @@
 | `done` | 流式响应帧标志：`false` 中间帧，`true` 最终帧 | 第 5 章 |
 | `ok` | 响应是否成功 | 本章 |
 | `error` | `ok=false` 时的错误对象 | 本章 |
-| `scopeId` | 逻辑页面 scope 标识（SPA 场景） | 第 11 章后按需 |
+| `scopeId` | 逻辑页面 scope 标识（SPA 场景），机制详见 `docs/03-protocol.md §7.3` | 本章仅登记 |
 
-协议遵循“只增不改不删”的兼容规则：新版本可以新增可选字段，但不得删除字段或更改已有字段语义；接收方必须忽略不认识的字段。
+协议遵循"只增不改不删"的兼容规则：新版本可以新增可选字段，但不得删除字段或更改已有字段语义；接收方必须忽略不认识的字段。
 
 ## Request 示例
 ```json
@@ -79,9 +71,11 @@
 ## 建议实现类
 - `BridgeMessage`：消息读写与创建（`fromJson` 解析失败返回 `null`，不抛异常）。
 - `BridgeError`：统一错误结构（`code/message/retryable/details`）。
-- `BridgeApiContract`：方法名常量与错误码基线。本仓库中它固定了三个保留方法与 8 个协议错误码：
+- `BridgeApiContract`：方法名常量与错误码基线。本仓库中它固定了三个保留方法与错误码：
   - 保留方法：`bridge.handshake`（握手）、`runtime.state`（生命周期事件推送）、`bridge.cancelScope`（scope 注销）。
-  - 错误码基线：`E_INVALID_MESSAGE`、`E_POLICY_DENY`、`E_ORIGIN_DENY`、`E_METHOD_NOT_ALLOWED`、`E_SESSION_INVALID`、`E_CAPABILITY_DENY`、`E_METHOD_NOT_FOUND`、`E_INTERNAL`。
+  - 错误码基线（协议层，正本与层标注见 docs/03 §8）：`E_INVALID_MESSAGE`、`E_POLICY_DENY`、`E_ORIGIN_DENY`、`E_METHOD_NOT_ALLOWED`、`E_SESSION_INVALID`、`E_METHOD_NOT_FOUND`、`E_INTERNAL`（`E_CAPABILITY_DENY` 已随 capability 概念移除，不得再使用）。
+  - 传输层新增（v1）：`E_NOT_READY`（握手门禁，从 `E_POLICY_DENY` 分立）、`E_CHANNEL_CLOSED`（通道已关闭，JS 客户端本地产生）。
+  - JS 客户端本地（不跨端传输，屧行见 docs/03 §8）：`E_TIMEOUT`（请求超时）、`E_CANCELED`（AbortSignal 取消）。
 
 ## 验收清单
 1. 能正确解析 request/response/event。
@@ -94,6 +88,3 @@
 2. 不加 `reqId`，并发场景错配。
 3. `error` 字段结构不稳定。
 4. 错误码散落为内联字面量，而不是收口到 `BridgeApiContract` 常量——四端无法对齐。
-
-## 小结
-协议一旦清晰，代码才有长期演进基础。第 4 章开始做请求分发。

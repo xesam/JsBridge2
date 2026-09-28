@@ -9,22 +9,11 @@
         }
 
         const setActionsEnabled = (enabled) => {
-            for (const id of Object.keys(bizApi.CAPABILITY_MAP)) {
+            for (const id of Object.keys(bizApi.ACTION_METHOD_MAP)) {
                 const el = document.getElementById(id)
                 if (!el) continue
                 el.disabled = !enabled
                 el.style.opacity = enabled ? '1' : '0.5'
-            }
-        }
-
-        const setEnabledCapabilities = (capabilities) => {
-            const capSet = new Set(Array.isArray(capabilities) ? capabilities : [])
-            for (const [id, method] of Object.entries(bizApi.CAPABILITY_MAP)) {
-                const el = document.getElementById(id)
-                if (!el) continue
-                const enabled = capSet.has(method)
-                el.disabled = !enabled
-                el.style.opacity = enabled ? '1' : '0.35'
             }
         }
 
@@ -145,7 +134,7 @@
         }, false)
 
         setActionsEnabled(false)
-        return { setActionsEnabled, setEnabledCapabilities }
+        return { setActionsEnabled }
     }
 
     function bindLifecycleDisplay(lifecycleBridge) {

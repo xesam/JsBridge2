@@ -52,7 +52,7 @@ iOS/js-bridge-core-swift/.build
 js_bridge_android/js-bridge-example/src/main/assets/web/
 js_bridge_ios/js-bridge-example/WebAssets/
 js_bridge_flutter/assets/web/
-js_bridge_hm/js-bridge-example/entry/src/main/resources/rawfile/web/
+js_bridge_harmony/js-bridge-example/entry/src/main/resources/rawfile/web/
 
 \.*
 !.gitignore

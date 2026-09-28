@@ -19,13 +19,14 @@ import org.json.JSONObject;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.github.xesam.android.bridge.api.model.BridgeError;
-import io.github.xesam.android.bridge.core.message.MessageHandlerCallback;
-import io.github.xesam.android.bridge.core.message.SimpleNativeMessageHandler;
+import io.github.xesam.android.bridge.api.model.TrustedPageContext;
+import io.github.xesam.android.bridge.core.handler.AsyncHandler;
+import io.github.xesam.android.bridge.core.handler.ResponseEmitter;
 import io.github.xesam.example.bridge.JsonPayloadParser;
 import io.github.xesam.example.bridge.permissions.PermissionRequestRegistry;
 import io.github.xesam.example.bridge.permissions.PermissionResultCallback;
 
-public final class GetCurrentLocationPlugin implements SimpleNativeMessageHandler {
+public final class GetCurrentLocationPlugin implements AsyncHandler {
     private static final long DEFAULT_TIMEOUT_MS = 10_000L;
 
     private final Context context;
@@ -40,30 +41,31 @@ public final class GetCurrentLocationPlugin implements SimpleNativeMessageHandle
 
     @Override
     public void handle(
-            Object data,
-            MessageHandlerCallback callback) {
-        Payload payload = new LocationPayloadParser().getPayload(data == null ? "" : data.toString());
-        boolean fine = payload != null && "fine".equalsIgnoreCase(payload.accuracy);
-        long timeoutMs = payload == null || payload.timeoutMs <= 0 ? DEFAULT_TIMEOUT_MS : payload.timeoutMs;
+            TrustedPageContext trustedPageContext,
+            JSONObject payload,
+            ResponseEmitter emitter) {
+        Payload locationPayload = new LocationPayloadParser().getPayload(payload == null ? "" : payload.toString());
+        boolean fine = locationPayload != null && "fine".equalsIgnoreCase(locationPayload.accuracy);
+        long timeoutMs = locationPayload == null || locationPayload.timeoutMs <= 0 ? DEFAULT_TIMEOUT_MS : locationPayload.timeoutMs;
 
         if (!requesting.compareAndSet(false, true)) {
-            callback.fail(new BridgeError("E_BUSY", "location request is already in progress"));
+            emitter.fail(new BridgeError("E_BUSY", "location request is already in progress"));
             return;
         }
-        ensurePermissionAndLoadLocation(fine, timeoutMs, callback);
+        ensurePermissionAndLoadLocation(fine, timeoutMs, emitter);
     }
 
-    private void ensurePermissionAndLoadLocation(boolean fine, long timeoutMs, MessageHandlerCallback callback) {
+    private void ensurePermissionAndLoadLocation(boolean fine, long timeoutMs, ResponseEmitter emitter) {
         String permission = requiredPermission(fine);
         if (ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED) {
-            loadLocation(fine, timeoutMs, callback);
+            loadLocation(fine, timeoutMs, emitter);
             return;
         }
         boolean started = permissionRequestRegistry.requestPermissions(new String[]{permission}, new PermissionResultCallback() {
             @Override
             public void onResult(boolean granted, boolean permanentlyDenied) {
                 if (granted) {
-                    loadLocation(fine, timeoutMs, callback);
+                    loadLocation(fine, timeoutMs, emitter);
                     return;
                 }
                 requesting.set(false);
@@ -73,44 +75,44 @@ public final class GetCurrentLocationPlugin implements SimpleNativeMessageHandle
                         details.put("canOpenSettings", true);
                     } catch (JSONException ignored) {
                     }
-                    callback.fail(new BridgeError(
+                    emitter.fail(new BridgeError(
                             "E_PERMISSION_PERMANENTLY_DENIED",
                             "Location permission permanently denied",
                             false,
                             details));
                     return;
                 }
-                callback.fail(new BridgeError("E_PERMISSION_DENIED", "Location permission denied"));
+                emitter.fail(new BridgeError("E_PERMISSION_DENIED", "Location permission denied"));
             }
         });
         if (!started) {
             requesting.set(false);
-            callback.fail(new BridgeError("E_BUSY", "permission request is already in progress"));
+            emitter.fail(new BridgeError("E_BUSY", "permission request is already in progress"));
         }
     }
 
-    private void loadLocation(boolean fine, long timeoutMs, MessageHandlerCallback callback) {
+    private void loadLocation(boolean fine, long timeoutMs, ResponseEmitter emitter) {
         LocationManager locationManager = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
         if (locationManager == null) {
             requesting.set(false);
-            callback.fail(new BridgeError("E_LOCATION_UNAVAILABLE", "Location manager unavailable"));
+            emitter.fail(new BridgeError("E_LOCATION_UNAVAILABLE", "Location manager unavailable"));
             return;
         }
         String provider = chooseProvider(locationManager, fine);
         if (provider == null) {
             requesting.set(false);
-            callback.fail(new BridgeError("E_LOCATION_UNAVAILABLE", "No enabled location provider"));
+            emitter.fail(new BridgeError("E_LOCATION_UNAVAILABLE", "No enabled location provider"));
             return;
         }
 
         Location last = findLastKnownLocation(locationManager, fine);
         if (last != null) {
             requesting.set(false);
-            callback.success(toPayload(last));
+            emitter.success(toPayload(last), true);
             return;
         }
 
-        requestSingleLocation(locationManager, provider, timeoutMs, callback);
+        requestSingleLocation(locationManager, provider, timeoutMs, emitter);
     }
 
     @SuppressWarnings("MissingPermission")
@@ -118,7 +120,7 @@ public final class GetCurrentLocationPlugin implements SimpleNativeMessageHandle
             LocationManager locationManager,
             String provider,
             long timeoutMs,
-            MessageHandlerCallback callback) {
+            ResponseEmitter emitter) {
         AtomicBoolean settled = new AtomicBoolean(false);
         final LocationListener[] listenerHolder = new LocationListener[1];
         Runnable timeoutTask = () -> {
@@ -129,7 +131,7 @@ public final class GetCurrentLocationPlugin implements SimpleNativeMessageHandle
                 locationManager.removeUpdates(listenerHolder[0]);
             }
             requesting.set(false);
-            callback.fail(new BridgeError("E_TIMEOUT", "Location request timeout"));
+            emitter.fail(new BridgeError("E_INTERNAL", "Location request timeout"));  // 返回 E_INTERNAL 而非 E_TIMEOUT——E_TIMEOUT 为 JS 本地码，不跨端传输（docs/03 §8）
         };
         mainHandler.postDelayed(timeoutTask, timeoutMs);
 
@@ -142,7 +144,7 @@ public final class GetCurrentLocationPlugin implements SimpleNativeMessageHandle
                 mainHandler.removeCallbacks(timeoutTask);
                 locationManager.removeUpdates(this);
                 requesting.set(false);
-                callback.success(toPayload(location));
+                emitter.success(toPayload(location), true);
             }
 
             @Override
@@ -153,7 +155,7 @@ public final class GetCurrentLocationPlugin implements SimpleNativeMessageHandle
                 mainHandler.removeCallbacks(timeoutTask);
                 locationManager.removeUpdates(this);
                 requesting.set(false);
-                callback.fail(new BridgeError("E_LOCATION_UNAVAILABLE", "Location provider disabled"));
+                emitter.fail(new BridgeError("E_LOCATION_UNAVAILABLE", "Location provider disabled"));
             }
 
             @Override

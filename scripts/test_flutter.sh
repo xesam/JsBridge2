@@ -17,9 +17,8 @@ if [ ! -d "$CORE_PATH" ]; then
 fi
 
 cd "$CORE_PATH"
-flutter test
-
-if [ "${PIPESTATUS[0]}" -eq 0 ]; then
+# set -e 下 `if cmd` 不再整脚本即退——FAILED 分支可达
+if flutter test; then
     echo -e "${GREEN}Flutter core tests PASSED${NC}"
 else
     echo -e "${RED}Flutter core tests FAILED${NC}"
@@ -28,9 +27,7 @@ fi
 
 echo -e "${YELLOW}=== Flutter: host app analyze ===${NC}"
 cd "$PROJECT_ROOT/js_bridge_flutter"
-flutter analyze
-
-if [ "${PIPESTATUS[0]}" -eq 0 ]; then
+if flutter analyze; then
     echo -e "${GREEN}Flutter analyze PASSED${NC}"
 else
     echo -e "${RED}Flutter analyze FAILED${NC}"

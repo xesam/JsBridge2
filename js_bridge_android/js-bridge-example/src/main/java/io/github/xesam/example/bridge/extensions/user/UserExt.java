@@ -8,17 +8,19 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import io.github.xesam.android.bridge.api.model.BridgeError;
-import io.github.xesam.android.bridge.core.message.MessageHandlerCallback;
-import io.github.xesam.android.bridge.core.message.SimpleNativeMessageHandler;
+import io.github.xesam.android.bridge.api.model.TrustedPageContext;
+import io.github.xesam.android.bridge.core.handler.AsyncHandler;
+import io.github.xesam.android.bridge.core.handler.ResponseEmitter;
 import io.github.xesam.example.bridge.JsonPayloadParser;
 
-public class UserExt implements SimpleNativeMessageHandler {
+public class UserExt implements AsyncHandler {
     @Override
     public void handle(
-            Object data,
-            MessageHandlerCallback callback) {
-        Payload payload = new UserPayloadParser().getPayload(data.toString());
-        new MockUserService().getUser(payload.userId, new MockUserService.UserServiceCallback() {
+            TrustedPageContext context,
+            JSONObject payload,
+            ResponseEmitter emitter) {
+        Payload userPayload = new UserPayloadParser().getPayload(payload.toString());
+        new MockUserService().getUser(userPayload.userId, new MockUserService.UserServiceCallback() {
             @Override
             public void onSuccess(MockUserService.User user) {
                 Log.d("getUser#onSuccess", user.toString());
@@ -28,7 +30,7 @@ public class UserExt implements SimpleNativeMessageHandler {
                 } catch (JSONException e) {
                     throw new RuntimeException(e);
                 }
-                callback.success(userJson);
+                emitter.success(userJson, true);
             }
 
             @Override
@@ -36,10 +38,10 @@ public class UserExt implements SimpleNativeMessageHandler {
                 Log.d("getUser#onFail", error.getMessage());
                 JSONObject details = new JSONObject();
                 try {
-                    details.put("userId", payload.userId);
+                    details.put("userId", userPayload.userId);
                 } catch (JSONException ignored) {
                 }
-                callback.fail(new BridgeError("E_NOT_FOUND", "user not found", false, details));
+                emitter.fail(new BridgeError("E_NOT_FOUND", "user not found", false, details));
             }
         });
     }

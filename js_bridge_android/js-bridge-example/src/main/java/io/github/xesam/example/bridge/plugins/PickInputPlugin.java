@@ -1,20 +1,23 @@
 package io.github.xesam.example.bridge.plugins;
 
-import android.app.AlertDialog;
 import android.content.Context;
-import android.content.Intent;
 
 import org.json.JSONObject;
 
-import io.github.xesam.android.bridge.api.model.BridgeError;
-import io.github.xesam.android.bridge.core.message.MessageHandlerCallback;
-import io.github.xesam.android.bridge.core.message.SimpleNativeMessageHandler;
+import io.github.xesam.android.bridge.api.model.TrustedPageContext;
+import io.github.xesam.android.bridge.core.handler.AsyncHandler;
+import io.github.xesam.android.bridge.core.handler.ResponseEmitter;
 import io.github.xesam.android.bridge.extensions.registry.BridgeLaunchResult;
 import io.github.xesam.android.bridge.extensions.registry.BridgeResultCallback;
 import io.github.xesam.android.bridge.extensions.registry.BridgeResultRegistry;
 import io.github.xesam.example.bridge.PickInputActivity;
 
-public class PickInputPlugin implements SimpleNativeMessageHandler {
+import android.app.AlertDialog;
+import android.content.Intent;
+
+import io.github.xesam.android.bridge.api.model.BridgeError;
+
+public class PickInputPlugin implements AsyncHandler {
     private final Context context;
     private final BridgeResultRegistry mBridgeResultRegistry;
 
@@ -25,8 +28,9 @@ public class PickInputPlugin implements SimpleNativeMessageHandler {
 
     @Override
     public void handle(
-            Object data,
-            MessageHandlerCallback callback) {
+            TrustedPageContext trustedPageContext,
+            JSONObject payload,
+            ResponseEmitter emitter) {
         Intent intent = new Intent(context, PickInputActivity.class);
         mBridgeResultRegistry.launchForResult(intent, new BridgeResultCallback() {
             @Override
@@ -44,9 +48,9 @@ public class PickInputPlugin implements SimpleNativeMessageHandler {
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
-                    callback.success(res);
+                    emitter.success(res, true);
                 } else {
-                    callback.fail(toBridgeError(result));
+                    emitter.fail(toBridgeError(result));
                 }
             }
         });
@@ -58,7 +62,7 @@ public class PickInputPlugin implements SimpleNativeMessageHandler {
             return new BridgeError("E_BUSY", "launch is already in progress");
         }
         if (BridgeLaunchResult.ERROR_CANCELED.equals(error)) {
-            return new BridgeError("E_CANCELED", "launch canceled");
+            return new BridgeError("E_INTERNAL", "launch canceled");  // 返回 E_INTERNAL 而非 E_CANCELED——E_CANCELED 为 JS 本地码，不跨端传输（docs/03 §8）
         }
         if (BridgeLaunchResult.ERROR_EMPTY_RESULT.equals(error)) {
             return new BridgeError("E_RESULT_EMPTY", "empty launch result");

@@ -11,7 +11,7 @@ public final class HandshakeGatePolicy implements PolicyRule {
             return PolicyDecision.allow();
         }
         if (!input.isReady()) {
-            return PolicyDecision.deny(name(), new BridgeError(BridgeApiContract.ERR_POLICY_DENY, "bridge handshake required"));
+            return PolicyDecision.deny(name(), new BridgeError(BridgeApiContract.ERR_NOT_READY, "bridge session not ready"));
         }
         return PolicyDecision.allow();
     }

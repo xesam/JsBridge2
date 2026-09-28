@@ -10,14 +10,15 @@ import androidx.appcompat.app.AlertDialog;
 import org.json.JSONObject;
 
 import io.github.xesam.android.bridge.api.model.BridgeError;
-import io.github.xesam.android.bridge.core.message.MessageHandlerCallback;
-import io.github.xesam.android.bridge.core.message.SimpleNativeMessageHandler;
+import io.github.xesam.android.bridge.api.model.TrustedPageContext;
+import io.github.xesam.android.bridge.core.handler.AsyncHandler;
+import io.github.xesam.android.bridge.core.handler.ResponseEmitter;
 import io.github.xesam.android.bridge.extensions.registry.BridgeLaunchResult;
 import io.github.xesam.android.bridge.extensions.registry.BridgeResultCallback;
 import io.github.xesam.android.bridge.extensions.registry.BridgeResultRegistry;
 import io.github.xesam.example.bridge.JsonPayloadParser;
 
-public class PickImagePlugin implements SimpleNativeMessageHandler {
+public class PickImagePlugin implements AsyncHandler {
 
     private final Context context;
     private final BridgeResultRegistry mBridgeResultRegistry;
@@ -29,9 +30,10 @@ public class PickImagePlugin implements SimpleNativeMessageHandler {
 
     @Override
     public void handle(
-            Object data,
-            MessageHandlerCallback callback) {
-        MessageData messageData = new PickImagePayloadParser().getPayload(data.toString());
+            TrustedPageContext trustedPageContext,
+            JSONObject payload,
+            ResponseEmitter emitter) {
+        MessageData messageData = new PickImagePayloadParser().getPayload(payload.toString());
         String type = messageData == null || messageData.type == null || messageData.type.length() == 0
                 ? "image/*"
                 : messageData.type;
@@ -43,12 +45,9 @@ public class PickImagePlugin implements SimpleNativeMessageHandler {
                 if (result.isSuccess()) {
                     Uri imageUri = result.getIntent() == null ? null : result.getIntent().getData();
                     if (imageUri == null) {
-                        callback.fail(new BridgeError("E_RESULT_EMPTY", "empty launch result"));
+                        emitter.fail(new BridgeError("E_RESULT_EMPTY", "empty launch result"));
                         return;
                     }
-                    new AlertDialog.Builder(context)
-                            .setMessage(imageUri.toString())
-                            .show();
                     JSONObject res = new JSONObject();
                     try {
                         res.put("uri", imageUri.toString());
@@ -58,9 +57,9 @@ public class PickImagePlugin implements SimpleNativeMessageHandler {
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
-                    callback.success(res);
+                    emitter.success(res, true);
                 } else {
-                    callback.fail(toBridgeError(result));
+                    emitter.fail(toBridgeError(result));
                 }
             }
         });
@@ -72,7 +71,7 @@ public class PickImagePlugin implements SimpleNativeMessageHandler {
             return new BridgeError("E_BUSY", "launch is already in progress");
         }
         if (BridgeLaunchResult.ERROR_CANCELED.equals(error)) {
-            return new BridgeError("E_CANCELED", "launch canceled");
+            return new BridgeError("E_INTERNAL", "launch canceled");  // 返回 E_INTERNAL 而非 E_CANCELED——E_CANCELED 为 JS 本地码，不跨端传输（docs/03 §8）
         }
         if (BridgeLaunchResult.ERROR_EMPTY_RESULT.equals(error)) {
             return new BridgeError("E_RESULT_EMPTY", "empty launch result");

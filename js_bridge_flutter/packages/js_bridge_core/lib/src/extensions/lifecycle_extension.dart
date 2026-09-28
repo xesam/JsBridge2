@@ -1,9 +1,11 @@
 import '../api/bridge_api_contract.dart';
 import '../js_bridge.dart';
 
-/// Tier 3 — lifecycle 事件发布器。未 ready 时事件入 FIFO 队列（上限 maxPendingEvents，
+/// Tier 3 — lifecycle 事件发布器。postEvent 返回 false 时事件入 FIFO 队列（上限 maxPendingEvents，
 /// 超限丢最旧）；每次握手成功后按序 flush。seq 跟随本实例生命周期，不随页面重置。
-/// 语义与 Android extensions/lifecycle/LifecycleExtension.java 逐行对齐。
+/// 语义对齐 Android extensions/lifecycle/LifecycleExtension.java；差异点：Dart 的
+/// postEvent 是异步的，故另加 _enqueueOp 串行链保证事件不因 await 交错而乱序
+/// （Android / iOS 为同步 postEvent，无此需求）。
 class LifecycleExtension {
   LifecycleExtension(this._bridge, {int maxPendingEvents = 32})
       : _maxPendingEvents = maxPendingEvents < 1 ? 1 : maxPendingEvents {
@@ -55,7 +57,6 @@ class LifecycleExtension {
     });
   }
 
-  // postEvent 是异步的，用串行链保证事件不因 await 交错而乱序。
   Future<void> _enqueueOp(Future<void> Function() op) {
     _tail = _tail.then((_) => op());
     return _tail;

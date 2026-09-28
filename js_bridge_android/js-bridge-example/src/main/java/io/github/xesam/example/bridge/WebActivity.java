@@ -45,12 +45,13 @@ public class WebActivity extends AppCompatActivity {
         mBridge = new JsBridge(
                 new AndroidWebViewBridgeTransport(binding.webContainer),
                 new AndroidWebViewPageContextProvider(binding.webContainer),
-                BridgePolicyConfig.createKernelConfig(),
                 BridgePolicyConfig.createSecurityConfig());
         lifecycleExtension = new LifecycleExtension(mBridge);
         mBridgeResultRegistry = new DefaultBridgeResultRegistry(this);
         permissionRequestRegistry = new ActivityPermissionRegistry(this);
         binding.webContainer.getSettings().setJavaScriptEnabled(true);
+        // demo 调试开关：允许 chrome://inspect / CDP 直连（仅示例工程，不入库代码）
+        android.webkit.WebView.setWebContentsDebuggingEnabled(true);
         binding.webContainer.getSettings().setAllowFileAccess(true);
         binding.webContainer.getSettings().setAllowFileAccessFromFileURLs(true);
         binding.webContainer.getSettings().setAllowContentAccess(true);
@@ -61,7 +62,7 @@ public class WebActivity extends AppCompatActivity {
                 super.onPageFinished(view, url);
                 Log.d("onPageFinished", url);
                 mBridge.resetTransport();
-                mBridge.resetForNewPage();
+                mBridge.resetPageInstance();
             }
         });
         WebActivities.setupBridge(mBridge, this, mBridgeResultRegistry, permissionRequestRegistry);

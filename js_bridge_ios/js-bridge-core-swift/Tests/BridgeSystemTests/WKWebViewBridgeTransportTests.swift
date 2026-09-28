@@ -56,25 +56,33 @@ final class WKWebViewBridgeTransportTests: XCTestCase {
 
     // MARK: - handler registration
 
-    func test_init_registersHandlerWithUserContentController() {
+    func test_init_withDistinctNames_injectsIndependentBootstrapScripts() {
         let webView = makeWebView()
-        // 使用不同 handler 名避免 async close 的竞态
+        // WKUserContentController 无公开接口可查询已注册 handler，handler 注册因此
+        // 间接由「每个 transport 各注入自身 bootstrap script」验证（同一 webview 可
+        // 并存多个 transport）。不同 handler 名亦避免 async close 的竞态。
+        let ucc = webView.configuration.userContentController
+        let initialScriptCount = ucc.userScripts.count
         let transport1 = WKWebViewBridgeTransport(webView: webView, messageName: "handlerA")
-        transport1.close()
         let transport2 = WKWebViewBridgeTransport(webView: webView, messageName: "handlerB")
+        XCTAssertEqual(ucc.userScripts.count, initialScriptCount + 2)
+        XCTAssertEqual(transport1.messageName, "handlerA")
+        XCTAssertEqual(transport2.messageName, "handlerB")
+        transport1.close()
         transport2.close()
     }
 
     // MARK: - bind
 
-    func test_bind_storesListener() {
+    func test_bind_acceptsListener_andTransportStaysUsable() {
         let webView = makeWebView()
         let transport = WKWebViewBridgeTransport(webView: webView)
-        // bind 应不崩溃且存储回调
         var received: String?
         transport.bind { json in received = json }
-        // 无法直接模拟 WKScriptMessage，但可以验证 bind 不崩溃
-        XCTAssertNil(received) // 未收到消息
+        // 测试环境无法构造 WKScriptMessage，存储后的投递行为不可直接观测；
+        // 至少验证 bind 后不自发投递、且 transport 仍可发送
+        XCTAssertNil(received)
+        XCTAssertTrue(transport.send("{\"id\":\"after-bind\"}"))
         transport.close()
     }
 

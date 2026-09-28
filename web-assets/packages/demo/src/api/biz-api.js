@@ -10,7 +10,7 @@
             REQUEST: 'request',
         }
 
-        const CAPABILITY_MAP = {
+        const ACTION_METHOD_MAP = {
             showNativeLoading: DEMO_METHOD.SHOW_LOADING,
             getLocationCoarse: DEMO_METHOD.GET_CURRENT_LOCATION,
             getLocationFine: DEMO_METHOD.GET_CURRENT_LOCATION,
@@ -95,7 +95,7 @@
         }
 
         return {
-            CAPABILITY_MAP,
+            ACTION_METHOD_MAP,
             showLoading,
             getCurrentLocation,
             getUser,

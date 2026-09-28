@@ -19,12 +19,12 @@ public final class WebActivities {
             Context context,
             BridgeResultRegistry bridgeResultRegistry,
             PermissionRequestRegistry permissionRequestRegistry) {
-        bridge.registerNativeHandler("getUser", new UserExt());
-        bridge.registerNativeHandler("getCurrentLocation", new GetCurrentLocationPlugin(context, permissionRequestRegistry));
-        bridge.registerNativeHandler("request", new RequestExt());
-        bridge.registerNativeHandler("timerLog", new TimerExt());
-        bridge.registerNativeHandler("showLoading", new LoadingPlugin(context));
-        bridge.registerNativeHandler("pickImage", new PickImagePlugin(context, bridgeResultRegistry));
-        bridge.registerNativeHandler("pickInput", new PickInputPlugin(context, bridgeResultRegistry));
+        bridge.registerAsyncHandler("getUser", new UserExt());
+        bridge.registerAsyncHandler("getCurrentLocation", new GetCurrentLocationPlugin(context, permissionRequestRegistry));
+        bridge.registerAsyncHandler("request", new RequestExt());
+        bridge.registerAsyncHandler("timerLog", new TimerExt());
+        bridge.registerSimpleHandler("showLoading", new LoadingPlugin(context));
+        bridge.registerAsyncHandler("pickImage", new PickImagePlugin(context, bridgeResultRegistry));
+        bridge.registerAsyncHandler("pickInput", new PickInputPlugin(context, bridgeResultRegistry));
     }
 }

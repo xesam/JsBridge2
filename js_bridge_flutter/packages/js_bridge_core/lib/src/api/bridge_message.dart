@@ -38,10 +38,10 @@ class BridgeMessage {
   factory BridgeMessage.fromJsonString(String raw) {
     final Map<String, dynamic> json = jsonDecode(raw) as Map<String, dynamic>;
     return BridgeMessage(
-      id: json['id'] as String? ?? '',
-      sessionId: json['sessionId'] as String? ?? '',
-      kind: _parseKind(json['kind'] as String?),
-      method: json['method'] as String? ?? '',
+      id: _requiredString(json['id'], 'id'),
+      sessionId: _optionalSessionId(json['sessionId']),
+      kind: _parseKindStrict(json['kind']),
+      method: _requiredString(json['method'], 'method'),
       ts: (json['ts'] as num?)?.toInt() ?? 0,
       timeoutMs: (json['timeoutMs'] as num?)?.toInt() ?? 0,
       keep: json['keep'] == true,
@@ -76,16 +76,34 @@ class BridgeMessage {
     };
   }
 
-  static BridgeMessageKind _parseKind(String? raw) {
+  static BridgeMessageKind _parseKindStrict(dynamic raw) {
     switch (raw) {
+      case 'request':
+        return BridgeMessageKind.request;
       case 'response':
         return BridgeMessageKind.response;
       case 'event':
         return BridgeMessageKind.event;
-      case 'request':
       default:
-        return BridgeMessageKind.request;
+        throw const FormatException('BridgeMessage: invalid kind');
     }
+  }
+
+  static String _requiredString(dynamic raw, String field) {
+    if (raw is! String) {
+      throw FormatException('BridgeMessage: field $field must be a string');
+    }
+    return raw;
+  }
+
+  static String _optionalSessionId(dynamic raw) {
+    if (raw == null) {
+      return '';
+    }
+    if (raw is! String) {
+      throw const FormatException('BridgeMessage: field sessionId must be a string');
+    }
+    return raw;
   }
 
   static BridgeError? _parseError(dynamic raw) {

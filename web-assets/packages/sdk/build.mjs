@@ -2,12 +2,15 @@ import * as esbuild from 'esbuild'
 import * as babel from '@babel/core'
 import presetEnv from '@babel/preset-env'
 import { execSync } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 
+// 先清理 dist：tsc 的 declarationDir 只增不减——重构移走源文件后，旧 .d.ts 会静默
+// 留存并随 npm 包发布。构建必须幂等（见 .bugfix/BUG-03）。
+rmSync('dist', { recursive: true, force: true })
 mkdirSync('dist/esm', { recursive: true })
 mkdirSync('dist/iife', { recursive: true })
 
-// ESM：给 npm 消费者（import { BridgeClient } from '@xesam/jsbridge-sdk'）
+// ESM：给 npm 消费者（import { getBridge } from 'jsbridge-sdk'）
 await esbuild.build({
   entryPoints: ['src/index.ts'],
   bundle: true,

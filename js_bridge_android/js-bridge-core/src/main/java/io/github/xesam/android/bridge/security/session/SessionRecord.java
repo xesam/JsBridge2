@@ -1,21 +1,15 @@
 package io.github.xesam.android.bridge.security.session;
 
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
-
 public final class SessionRecord {
     private final String sessionId;
     private final String origin;
     private final String pageInstanceId;
-    private final Set<String> capabilities;
     private final long expiresAtMs;
 
-    public SessionRecord(String sessionId, String origin, String pageInstanceId, Set<String> capabilities, long expiresAtMs) {
+    public SessionRecord(String sessionId, String origin, String pageInstanceId, long expiresAtMs) {
         this.sessionId = sessionId;
         this.origin = origin;
         this.pageInstanceId = pageInstanceId;
-        this.capabilities = Collections.unmodifiableSet(new HashSet<>(capabilities));
         this.expiresAtMs = expiresAtMs;
     }
 
@@ -31,15 +25,8 @@ public final class SessionRecord {
         return pageInstanceId;
     }
 
-    public Set<String> getCapabilities() {
-        return capabilities;
-    }
-
-    public long getExpiresAtMs() {
-        return expiresAtMs;
-    }
-
     public boolean isExpired(long nowMs) {
-        return nowMs >= expiresAtMs;
+        // expiresAtMs <= 0 时永不过期（-1 为哨兵值；docs/03 §10：ttlMs == 0 永不失效，C60）
+        return expiresAtMs > 0 && nowMs >= expiresAtMs;
     }
 }

@@ -16,9 +16,8 @@ if [ ! -d "$PKG_PATH" ]; then
     exit 1
 fi
 
-swift test --package-path "$PKG_PATH"
-
-if [ "${PIPESTATUS[0]}" -eq 0 ]; then
+# set -e 下 `if cmd` 不再整脚本即退——FAILED 分支可达
+if swift test --package-path "$PKG_PATH"; then
     echo -e "${GREEN}iOS tests PASSED${NC}"
 else
     echo -e "${RED}iOS tests FAILED${NC}"

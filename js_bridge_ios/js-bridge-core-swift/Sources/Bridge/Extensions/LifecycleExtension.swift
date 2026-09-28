@@ -1,6 +1,6 @@
 import Foundation
 
-/// Tier 3 — lifecycle 事件发布器。未 ready 时事件入 FIFO 队列（上限 maxPendingEvents，
+/// Tier 3 — lifecycle 事件发布器。postEvent 返回 false 时事件入 FIFO 队列（上限 maxPendingEvents，
 /// 超限丢最旧）；每次握手成功后按序 flush。seq 跟随本实例生命周期，不随页面重置。
 /// 语义与 Android extensions/lifecycle/LifecycleExtension.java 逐行对齐。
 public final class LifecycleExtension {

@@ -1,550 +1,299 @@
-# 07 Transport Bridge 详细设计
+# 07 Transport 抽象与平台适配
 
-> 状态：草案 · 2026-07
+> 更新日期：2026-09  
+> 适用平台：Android · iOS · Flutter · HarmonyOS
+
+本文档说明 Transport 抽象层的设计与各平台适配器实现。
+
+**关于信道建立机制**：信道建立的 pull 模型、reqId 往返、端口轮换等内容已迁移至 [06-channel-establishment.md](06-channel-establishment.md)。本文聚焦于 Transport 接口设计与平台适配。
+
+---
 
 ## 1. 目标
 
 消除 iOS / Flutter / HarmonyOS 三端集成方被迫手写的 50+ 行管道代码（bootstrap script、消息路由循环、`evaluateJavaScript` 调用、字符串转义），使集成代码量向 Android（4 行）对齐。
 
-## 2. 约束（不可违反）
+**核心约束**：
+- Core 层零平台导入（iOS `BridgeCore` target 不得 `import WebKit`）
+- Transport 收敛到字符串边界（签名中不得出现平台类型）
+- 渐进增强（不传 transport 仍可手动 `processIncomingResponses`）
 
-| 约束 | 来源 | 影响 |
-|------|------|------|
-| Core 层零平台导入 | `05-review.md §2` | iOS `BridgeCore` target 不得 `import WebKit` |
-| Transport 收敛到字符串边界 | `05-review.md §2` | 签名中不得出现平台类型 |
-| 渐进增强 | `AGENTS.md` | 新增 API 必须是"关闭且可选"——不传 transport 仍可手动 `processIncomingResponses` |
-| 不破坏现有 API | 当前 v1 稳定 | 新增方法不删除/不改签名 |
-| 四端协议一致 | `AGENTS.md` | 新增方法语义四端对齐 |
+---
 
-## 3. 变更总览
+## 2. Transport 抽象
 
-| 平台 | 新增文件 | 修改文件 | 消费者代码行数变化 |
-|------|---------|---------|------------------|
-| iOS | `Sources/BridgeSystem/WKWebViewBridgeTransport.swift` | `Package.swift`、`CoreBridge.swift`、`JsBridge.swift` | ~50 → ~4 |
-| Flutter | — | `core_bridge.dart`、`js_bridge.dart` | ~15 → ~6 |
-| HarmonyOS | — | `CoreBridge.ets`、`JsBridge.ets` | ~12 → ~5 |
-| Android | — | — | 不变（已有 `resetTransport()`） |
-| WebAssets | — | — | 不变（`native-transport.ts` 无需改动） |
+### 2.1 接口定义
 
-## 4. iOS 详细设计
+四端统一收敛到字符串边界：
 
-### 4.1 模块结构：新增 `BridgeSystem` target
-
-```
-js_bridge_ios/js-bridge-core-swift/
-├── Package.swift                      ← 新增 BridgeSystem target
-├── Sources/
-│   ├── Bridge/                        ← 不变（BridgeCore target，零平台导入）
-│   │   ├── Core/
-│   │   │   ├── CoreBridge.swift        ← 新增 sendViaTransport()
-│   │   │   └── BridgeTransport.swift   ← 不变
-│   │   ├── Extensions/
-│   │   │   └── LifecycleExtension.swift
-│   │   ├── Security/
-│   │   ├── Api/
-│   │   └── JsBridge.swift              ← 新增 bindTransport()
-│   └── BridgeSystem/                  ← 新增 target
-│       └── WKWebViewBridgeTransport.swift
-└── Tests/
-    ├── BridgeCoreTests/
-    └── BridgeSystemTests/              ← 新增
-```
-
-`Package.swift` 变更：
-
-```swift
-targets: [
-    .target(name: "BridgeCore", path: "Sources/Bridge"),
-    .target(name: "BridgeSystem", dependencies: ["BridgeCore"], path: "Sources/BridgeSystem"),  // 新增
-    .testTarget(name: "BridgeCoreTests", dependencies: ["BridgeCore"], path: "Tests/BridgeCoreTests"),
-    .testTarget(name: "BridgeSystemTests", dependencies: ["BridgeSystem"], path: "Tests/BridgeSystemTests"),  // 新增
-],
-products: [
-    .library(name: "BridgeCore", targets: ["BridgeCore"]),
-    .library(name: "BridgeSystem", targets: ["BridgeSystem"]),  // 新增
-    .library(name: "js-bridge-core-swift", targets: ["BridgeCore", "BridgeSystem"]),
-]
-```
-
-依据：Android `extensions/system/` 同样位于同一 Gradle module 内但持有平台导入；Swift 用独立 target 实现等价隔离。
-
-### 4.2 `WKWebViewBridgeTransport`
-
-```
-位置：Sources/BridgeSystem/WKWebViewBridgeTransport.swift
-导入：import Foundation · import WebKit · import BridgeCore
-继承：NSObject（WKScriptMessageHandler 要求 ObjC 兼容）
-遵循：BridgeTransport, WKScriptMessageHandler
+```java
+// Android
+interface BridgeTransport {
+    void bind(Listener listener);
+    boolean send(String messageJson);
+    void close();
+    
+    interface Listener {
+        void onMessage(String messageJson);
+    }
+}
 ```
 
 ```swift
-import Foundation
-import WebKit
+// iOS
+protocol BridgeTransport: AnyObject {
+    func bind(listener: @escaping (String) -> Void)
+    func send(_ messageJson: String) -> Bool
+    func close()
+}
+```
+
+```dart
+// Flutter
+typedef BridgeTransport = FutureOr<bool> Function(String messageJson);
+// transport 为宿主注入的函数（构造期 attach），无独立 adapter 类型；
+// 入站 listener 形态由 bindTransport() 返回的入站处理闭包承担（见 §3.2），无独立命名的 listener 类型
+```
+
+```typescript
+// HarmonyOS（ArkTS）
+type BridgeTransport = (messageJson: string) => boolean | Promise<boolean>;
+// transport 为宿主注入的函数，构造期经 JsBridgeOptions.transport 注入；
+// 入站 listener 形态同样由 bindTransport() 返回的闭包承担（见 §3.3），无独立命名的 listener 类型
+```
+
+> Android 与 iOS 的 `bind(listener)` 形态用于建立「transport → core listener」的入站接线；
+> Flutter / HarmonyOS 的等价接线由 `bindTransport()` 闭包完成（见 [02-architecture.md §6.3](02-architecture.md)），四种形态收敛到同一字符串边界。
+
+### 2.2 集成前后对比
+
+**iOS（从 ~50 行降至 ~5 行）**
+
+集成前（手写管道，示意）：
+```swift
+// 手写 bootstrap script（实际注入的入口是 callNativeApi）
+let bootstrapScript = """
+  (function() {
+    if (!window.__jsbridge2__) { window.__jsbridge2__ = {}; }
+    window.__jsbridge2__.callNativeApi = function(msg) {
+      window.webkit.messageHandlers.NativeBridge.postMessage(String(msg));
+    };
+  })();
+"""
+webView.configuration.userContentController.addUserScript(
+  WKUserScript(source: bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+
+// 手写消息路由循环
+webView.configuration.userContentController.add(self, name: "NativeBridge")
+
+func userContentController(_ controller: WKUserContentController, 
+                          didReceive message: WKScriptMessage) {
+  guard message.frameInfo.isMainFrame else { return }   // 主 frame 门控也要手写
+  guard let messageString = message.body as? String else { return }
+  _ = bridge.processIncomingResponses(messageJson: messageString)  // origin 只能来自构造期注入的 PageContextProvider
+}
+
+// 手写出站发送
+func sendMessage(_ json: String) {
+  let escaped = json.replacingOccurrences(of: "\\", with: "\\\\")
+                   .replacingOccurrences(of: "\"", with: "\\\"")
+  let script = "window.__jsbridge2__.receive('\(escaped)')"
+  webView.evaluateJavaScript(script)
+}
+```
+
+集成后：
+```swift
 import BridgeCore
+import BridgeSystem
 
-/// WKWebView 传输适配器。
-/// 封装入站（WKScriptMessageHandler）与出站（evaluateJavaScript），
-/// 自动处理 bootstrap script 注入、消息体类型转换、字符串转义。
-/// 消费者只需创建实例并传给 JsBridge，无需手写任何 JS 或 WebView 管道代码。
-public final class WKWebViewBridgeTransport: NSObject, BridgeTransport, WKScriptMessageHandler {
-
-    /// JS 侧 postMessage 的 handler 名称。
-    /// 默认 "NativeBridge"，与 native-transport.ts 的检测路径一致。
-    public let messageName: String
-
-    private weak var webView: WKWebView?
-    private var listener: ((String) -> Void)?
-    private var isRegistered = false
-
-    /// 创建并注册到指定 WebView。
-    /// - Parameters:
-    ///   - webView: 目标 WKWebView；须在页面加载前调用。
-    ///   - messageName: WKScriptMessageHandler 注册名。
-    public init(webView: WKWebView, messageName: String = "NativeBridge") {
-        self.webView = webView
-        self.messageName = messageName
-        super.init()
-        registerHandler()
-        injectBootstrap()
-    }
-
-    deinit {
-        // Best-effort：必须在主线程操作 WKUserContentController。
-        // 不调 close()——close() 依赖 isRegistered 状态，deinit 时状态可能不一致。
-        let wv = webView
-        let name = messageName
-        DispatchQueue.main.async {
-            wv?.configuration.userContentController.removeScriptMessageHandler(forName: name)
-        }
-    }
-
-    // MARK: - BridgeTransport
-
-    public func bind(listener: @escaping (String) -> Void) {
-        self.listener = listener
-    }
-
-    @discardableResult
-    public func send(_ messageJson: String) -> Bool {
-        guard let webView else { return false }
-        let escaped = jsonStringLiteral(messageJson)
-        let js = "window.__bridgeReceiveFromNative && window.__bridgeReceiveFromNative(\"\(escaped)\")"
-        webView.evaluateJavaScript(js, completionHandler: nil)
-        return true
-    }
-
-    public func close() {
-        guard isRegistered, let webView else { return }
-        webView.configuration.userContentController
-            .removeScriptMessageHandler(forName: messageName)
-        isRegistered = false
-        listener = nil
-    }
-
-    // MARK: - WKScriptMessageHandler
-
-    public func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {
-        guard message.name == messageName else { return }
-        guard let body = normalizeBody(message.body) else { return }
-        listener?(body)
-    }
-
-    // MARK: - Private
-
-    private func registerHandler() {
-        guard let webView else { return }
-        webView.configuration.userContentController.add(self, name: messageName)
-        isRegistered = true
-    }
-
-    private func injectBootstrap() {
-        guard let webView else { return }
-        let source = """
-        (function() {
-            if (!window.$__native__) { window.$__native__ = {}; }
-            window.$__native__.callNativeApi = function(messageJson) {
-                window.webkit.messageHandlers.\(messageName).postMessage(String(messageJson));
-            };
-        })();
-        """
-        let script = WKUserScript(
-            source: source,
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: false
-        )
-        webView.configuration.userContentController.addUserScript(script)
-        // 不存储 script 引用——removeUserScript(_:) 是 iOS 14+ API，
-        // 而项目支持 iOS 13。user script 是纯 JS 字符串，不产生强引用，
-        // 随 WKUserContentController 生命周期自然释放。
-    }
-
-    // 仅处理 String 和 [String: Any]——JS 侧始终调用 postMessage(String(json))，
-    // dictionary 分支是 WKWebView 自动解析 JSON body 的防御性 fallback。
-    private func normalizeBody(_ body: Any) -> String? {
-        if let s = body as? String { return s }
-        if let dict = body as? [String: Any] {
-            guard let data = try? JSONSerialization.data(withJSONObject: dict),
-                  let json = String(data: data, encoding: .utf8) else { return nil }
-            return json
-        }
-        return nil
-    }
-
-    private func jsonStringLiteral(_ raw: String) -> String {
-        raw
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-    }
-}
-```
-
-### 4.3 `close()` 幂等性
-
-`WKUserContentController.removeScriptMessageHandler(forName:)` 在未注册时调用会触发 precondition crash。设计用 `isRegistered` 标志保护：
-
-- `init` 时 `add(self, name:)` → `isRegistered = true`
-- `close()` 时 `guard isRegistered` → 移除 → `isRegistered = false`
-- `deinit` 不走 `close()`，直接 dispatch `removeScriptMessageHandler`（已注册时才有效，未注册时 UCC 已释放，无影响）
-- `bridge.destroy()` → `core.destroy()` → `transport?.close()` 是正常路径
-- Transport 被释放但未显式 `close()` → `deinit` 是安全网
-
-### 4.4 Retain Cycle 分析
-
-```
-引用链：
-  WKWebView ──strong──► WKWebViewConfiguration ──strong──► WKUserContentController
-                                                                                │
-                                                                    add(self, name:)
-                                                                ──strong──► Transport
-                                                                               │
-                                                                    [weak webView]──► WKWebView  (weak ✓)
-                                                                               │
-                                                                    listener closure
-                                                                ──captures──► JsBridge (via [weak self]) (weak ✓)
-
-  JsBridge ──strong──► CoreBridge ──strong──► transport  (CoreBridge.transport field)
-```
-
-唯一需要手动打断的强引用：`WKUserContentController → Transport`。
-
-打断方式：
-1. **正常路径**：`bridge.destroy()` → `core.destroy()` → `transport?.close()` → `removeScriptMessageHandler` → UCC 释放 Transport
-2. **安全网**：`Transport.deinit` 直接 dispatch `removeScriptMessageHandler` 到主线程——如果 consumer 忘记 `destroy()`，deinit 会 best-effort 清理
-
-deinit 安全性：
-- `webView` 是 weak，deinit 时读取可能为 nil → 闭包内 `wv?` 可选链保护
-- `removeScriptMessageHandler` 需在主线程 → `DispatchQueue.main.async` 保证
-- 如果 WebView 已释放，`wv` 为 nil，闭包内 `wv?` 跳过，无副作用
-- 如果 WebView 仍存活，闭包在主线程安全移除 handler，打断强引用
-- `deinit` 不依赖 `isRegistered` 标志——即使 `close()` 已执行过，重复 `remove` 不再注册时 crash
-  因为 `DispatchQueue.main.async` 的闭包在 deinit 之后才执行，此时 UCC 可能已释放，
-  `wv?` 为 nil，跳过即可
-
-### 4.5 CoreBridge 变更：新增 `sendViaTransport`
-
-```swift
-// CoreBridge.swift — 新增
-
-/// 通过已绑定的 transport 发送预构建的 JSON 字符串。
-/// 供 bindTransport 闭环使用；与 Android 的 respondSuccess/respondFail 对齐。
-@discardableResult
-public func sendViaTransport(_ messageJson: String) -> Bool {
-    guard let transport else {
-        sendFailureCount += 1
-        return false
-    }
-    let sent = transport.send(messageJson)
-    if !sent { sendFailureCount += 1 }
-    return sent
-}
-```
-
-依据：Android `CoreBridge.respondSuccess/respondFail` 是 public 方法，内部调 `transport.send()`。iOS 的 `sendViaTransport` 是其等价物——让 JsBridge 能在不持有 transport 引用的前提下发送响应。
-
-### 4.6 JsBridge 变更：新增 `bindTransport`
-
-```swift
-// JsBridge.swift — 新增
-
-/// 绑定 transport 入站回调，形成闭环：
-/// transport 收到 JS 消息 → 策略检查 → 分发 → 响应自动通过 transport 发回。
-///
-/// 前置条件：
-/// 1. 已通过构造函数或 attachTransport 注入 transport。
-/// 2. 已注入 PageContextProvider（Level 2 必需；未注入时 processIncomingResponses 会 preconditionFailure）。
-///
-/// 幂等：重复调用仅更新回调引用。
-public func bindTransport() {
-    core.bindTransportListener { [weak self] messageJson in
-        guard let self else { return }
-        let responses = self.processIncomingResponses(messageJson: messageJson)
-        for response in responses {
-            _ = self.core.sendViaTransport(response)
-        }
-    }
-}
-```
-
-```swift
-// CoreBridge.swift — 新增（internal，不暴露给外部消费者）
-
-internal func bindTransportListener(_ listener: @escaping (String) -> Void) {
-    transport?.bind(listener)
-}
-```
-
-### 4.7 消费者集成对比
-
-```swift
-// ════════ 之前：50+ 行管道代码 ════════
-// WebViewContainer.swift: bootstrap script (10行) + addUserScript (3行) + add(handler) (1行)
-// BridgeHost.swift: WKScriptMessageHandler conformance (1行) + attachTransport (3行)
-//   + userContentController didReceive (20行) + sendToWeb (3行) + jsonStringLiteral (4行)
-//   + WebViewOutboundTransport 私有类 (8行)
-
-// ════════ 之后：4 行 ════════
 let transport = WKWebViewBridgeTransport(webView: webView)
 let bridge = JsBridge(securityConfig: config, pageContextProvider: provider, transport: transport)
 bridge.bindTransport()
-bridge.resetForNewPage()
+bridge.resetPageInstance()
 ```
 
-## 5. Flutter 详细设计
+---
 
-### 5.1 CoreBridge 变更
+## 3. 平台适配器实现
 
+### 3.1 iOS: WKWebViewBridgeTransport
+
+**模块结构**：新增 `BridgeSystem` target（持有 `WebKit` 导入）
+
+```
+Sources/
+├── Bridge/              (BridgeCore target，零平台导入)
+│   ├── Core/
+│   ├── Security/
+│   ├── Extensions/      (LifecycleExtension.swift 等)
+│   └── Api/
+└── BridgeSystem/        (BridgeSystem target，可导入 WebKit)
+    └── WKWebViewBridgeTransport.swift
+```
+
+> **Swift 模块粒度注记**：security 组件位于 `BridgeCore` target 内（Swift Package 单 target 目录形态所限），transport（`BridgeSystem`）经 `import BridgeCore` 与 security 同处一个**模块级**依赖闭包。本文档的"transport 与 security 互不引用"约束在 Swift 侧按**符号级**执行：`WKWebViewBridgeTransport` 不引用任何 Policy/Session/PageContextProvider 符号，`BridgeCore` 本身零 `import WebKit`——约束实质成立，模块切分粒度属平台固有形态、非违规。
+
+**职责封装**：
+- 入站：实现 `WKScriptMessageHandler`，自动转换消息体类型；**主 frame 门控**——`didReceive` 必须校验 `message.frameInfo.isMainFrame`，非主 frame（WebView 内嵌 iframe）的消息一律丢弃，防止 iframe 借主 frame 的可信 origin 越过 OriginPolicy（契约见 docs/03 §9 细则 5 建链信任边界；instrumented 落点 C58）；bootstrap 脚本以 `forMainFrameOnly: true` 注入，iframe 中不出现 bridge 入口
+- 出站：封装 `evaluateJavaScript` + 字符串转义
+- Bootstrap：自动注入占位对象（`window.__jsbridge2__.callNativeApi` → `window.webkit.messageHandlers.<messageName>.postMessage(String(...))`）
+
+**消费者代码**（~5 行）：
+```swift
+import BridgeCore
+import BridgeSystem
+
+let transport = WKWebViewBridgeTransport(webView: webView)
+let bridge = JsBridge(securityConfig: config, pageContextProvider: provider, transport: transport)
+bridge.bindTransport()
+bridge.resetPageInstance()
+```
+
+> **`messageName` 自定义参数的实际边界**：默认 `"NativeBridge"` 与 JS SDK 的检测路径（`window.webkit.messageHandlers.NativeBridge`）一致；JS SDK 硬编码按该名探测，宿主改名会破坏默认建链——该 init 参数仅供测试注入使用，生产宿主不应改名。
+
+### 3.2 Flutter: 宿主注入函数（webview_flutter）
+
+Flutter 端使用 `webview_flutter`，transport 是宿主注入的函数，无需独立适配器文件——入站走 `addJavaScriptChannel`，出站走 `runJavaScript`。
+
+**集成代码**（实然形态，参考 `js_bridge_flutter/lib/src/webview/flutter_bridge_controller.dart`）：
 ```dart
-// core_bridge.dart — 新增
-
-/// 通过已绑定的 transport 发送预构建的 JSON 字符串。
-Future<bool> sendViaTransport(String messageJson) async {
-  final BridgeTransport? transport = _transport;
-  if (transport == null) {
-    _sendFailureCount += 1;
-    return false;
-  }
+final bridge = JsBridge(securityConfig: SecurityConfig(...));          // 构造期注入安全配置
+bridge.attachPageContextProvider(_WebviewPageContextProvider(...));    // origin 经内核 OriginNormalizer 派生
+bridge.attachTransport((String messageJson) async {                   // 出站：注入函数
   try {
-    final bool sent = await transport(messageJson);
-    if (!sent) {
-      _sendFailureCount += 1;
-    }
-    return sent;
+    await webViewController.runJavaScript(
+      'window.__jsbridge2__ && window.__jsbridge2__.receive && '
+      'window.__jsbridge2__.receive(${jsonEncode(messageJson)})',
+    );
+    return true;
   } catch (_) {
-    _sendFailureCount += 1;
-    return false;
+    return false;    // 吞异常后显式返回 false（异常不逃逸），false 即宿主侧 send 失败的可观测出口
   }
-}
-```
-
-### 5.2 JsBridge 变更
-
-```dart
-// js_bridge.dart — 新增
-
-/// 绑定入站消息处理闭环，返回一个可传给 JavaScriptChannel.onMessageReceived 的回调。
-/// 调用前须先 attachTransport。
-/// 幂等：每次调用返回新的 handler，内部引用最新的 transport。
-Future<void> Function(String) bindTransport() {
-  return (String messageJson) async {
-    final List<String> responses =
-        await processIncomingResponses(messageJson: messageJson);
-    for (final String response in responses) {
-      await _core.sendViaTransport(response);
-    }
-  };
-}
-```
-
-### 5.3 消费者集成对比
-
-```dart
-// ════════ 之前：15 行管道代码 ════════
-bridge.attachTransport((String messageJson) async {
-  await _sendToWeb(messageJson);  // 3 行
-  return true;
 });
-..addJavaScriptChannel('NativeBridge',
-    onMessageReceived: (msg) => unawaited(_handleIncoming(msg.message)));
-// _handleIncoming: 10 行
-// _sendToWeb: 3 行
 
-// ════════ 之后：6 行 ════════
-bridge.attachTransport((String messageJson) async {
-  final escaped = jsonEncode(messageJson);
-  await webViewController.runJavaScript(
-    'window.__bridgeReceiveFromNative && window.__bridgeReceiveFromNative($escaped)');
-  return true;
-});
-final onIncoming = bridge.bindTransport();
-webViewController.addJavaScriptChannel('NativeBridge',
-  onMessageReceived: (msg) => unawaited(onIncoming(msg.message)));
+final onIncoming = bridge.bindTransport();                             // 入站处理闭包
+webViewController = WebViewController()
+  ..setJavaScriptMode(JavaScriptMode.unrestricted)
+  ..addJavaScriptChannel(
+    'NativeBridge',                                                    // JS SDK 检测的常驻通道名
+    onMessageReceived: (JavaScriptMessage message) {
+      unawaited(onIncoming(message.message));
+    },
+  );
 ```
 
-> **残留 3 行 transport lambda** 是不可避免的：Flutter core 是纯 Dart 包，不能依赖 `webview_flutter`。这 3 行是"调用平台 API"的最低限度，不属于管道逻辑。
+### 3.3 HarmonyOS: 宿主注入函数（ArkWeb javaScriptProxy）
 
-## 6. HarmonyOS 详细设计
+HarmonyOS `Web` 组件提供 `javaScriptProxy` 注入机制；transport 为函数类型，构造期经 `JsBridgeOptions.transport` 注入。
 
-### 6.1 CoreBridge 变更
-
+**集成代码**（实然形态，参考 `js_bridge_harmony/js-bridge-example/.../pages/Index.ets`）：
 ```typescript
-// CoreBridge.ets — 新增
+const onIncoming = bridge.bindTransport();    // 无参，返回入站处理闭包（fail-fast：provider 缺失在绑定期即抛错）
 
-async sendViaTransport(messageJson: string): Promise<boolean> {
-  if (this.transport === null) {
-    this.sendFailures += 1;
-    return false;
-  }
-  try {
-    const sent = await this.transport(messageJson);
-    if (!sent) this.sendFailures += 1;
-    return sent;
-  } catch (e) {
-    this.sendFailures += 1;
-    return false;
-  }
-}
+Web({ src: url, controller: this.controller })
+  .javaScriptProxy({
+    object: {
+      postMessage: (json: string) => { onIncoming(json); },   // void 回调，纯异步入站
+    },
+    name: 'NativeBridge',                                     // JS SDK 检测的常驻通道名
+    methodList: ['postMessage'],
+  });
+
+// 出站 transport（构造期注入，实码为 sendToWeb）——try/catch 捕获
+// runJavaScript 异常后显式 return false，异常不逃逸（与 §4.4 定性一致）：
+// （json: string）=> {
+//   const script = `window.__jsbridge2__ && window.__jsbridge2__.receive &&
+//     window.__jsbridge2__.receive(${JSON.stringify(json)})`;
+//   try {
+//     this.controller.runJavaScript(script);
+//     return true;
+//   } catch (e) {
+//     return false;
+//   }
+// }
 ```
 
-### 6.2 JsBridge 变更
+### 3.4 Android: AndroidWebViewBridgeTransport（参考实现）
 
-```typescript
-// JsBridge.ets — 新增
+Android 端在 extensions/system 提供 `AndroidWebViewBridgeTransport`（实现 `BridgeTransport` 的 bind/send/close 三件套，另注入 pull 建链哑入口）。
 
-/// 绑定入站消息处理闭环，返回一个可传给 NativeBridgeProxy 的处理函数。
-/// 与 Flutter bindTransport() 语义一致：调用一次获得 handler，后续逐条调 handler(msg)。
-/// 前置条件：已注入 transport + PageContextProvider。
-bindTransport(): (messageJson: string) => Promise<void> {
-  return async (messageJson: string) => {
-    const responses = await this.processIncomingResponsesFromProvider(messageJson);
-    for (const response of responses) {
-      await this.core.sendViaTransport(response);
-    }
-  };
-}
+**集成代码**（实然形态）：
+```java
+AndroidWebViewBridgeTransport transport = new AndroidWebViewBridgeTransport(webView);
+JsBridge bridge = new JsBridge(transport, provider, securityConfig);        // 三参构造，无 Builder
+bridge.resetTransport();     // 无参：建立入站闭环（bind + 暂存队列补投）。哑入口 requestBridgeChannel 随 transport 构造注入（早于 loadUrl），不随 bind/resetTransport
+bridge.resetPageInstance();  // 无参：页面导航回调中轮换 pageInstanceId
 ```
 
-实际用法：
+---
 
-```typescript
-// HarmonyOS 消费者
-class NativeBridgeProxy {
-  constructor(private readonly onMessage: (msg: string) => void) {}
-  postMessage(msg: string): void { this.onMessage(msg); }
-}
+## 4. 使用方关注要点
 
-private onIncoming = this.bridge.bindTransport();
-private nativeBridge = new NativeBridgeProxy((msg) => void this.onIncoming(msg));
-```
+### 4.1 何时需要 Transport
 
-### 6.3 消费者集成对比
+| 场景 | 是否需要 | 原因 |
+|------|---------|------|
+| WebView 容器内正常集成 | ✅ 需要 | 提供自动管道，4–6 行完成集成 |
+| 单测（不涉及 WebView） | ❌ 不需要 | 直接调用 `processIncomingResponses(messageJson)`（origin/context 注入形态为测试面：Dart 用 `@visibleForTesting` 收敛、Swift 为 internal + `@testable`、ArkTS 公开但仅限测试注入——均经 OriginNormalizer 归一化，不得作生产旁路） |
+| 离线调试（Mock 响应） | ❌ 不需要 | 手动注入 Mock 响应 |
 
-```typescript
-// ════════ 之前：12 行管道代码 ════════
-// NativeBridgeProxy 类 (8行) + handleMessageFromWeb (5行) + sendToWeb (5行)
-// + javaScriptProxy 注册 (4行) + transport lambda (1行)
+### 4.2 Transport 的职责边界
 
-// ════════ 之后：5 行 ════════
-private onIncoming = this.bridge.bindTransport();
-private nativeBridge = new NativeBridgeProxy((msg) => void this.onIncoming(msg));
-// bridge 构造时 transport: (msg) => this.sendToWeb(msg)
-// sendToWeb: 3 行（runJavaScript 调用）
-// .javaScriptProxy({ object: this.nativeBridge, name: 'NativeBridge', methodList: ['postMessage'], ... })
-```
+**Transport 负责**：
+- 字符串收发管道（入站 + 出站）
+- 平台 API 封装（`evaluateJavaScript` 等）
+- Bootstrap script 注入（JS 侧占位对象）
 
-> **残留**：`NativeBridgeProxy` 类和 `sendToWeb` 不可避免——ArkTS 的 `javaScriptProxy` 要求注册对象方法，且 core 不能依赖 `@kit.ArkWeb`。
+**Transport 不负责**：
+- 信道建立（由 `native-transport.ts` + pull 模型完成，见 [06-channel-establishment.md](06-channel-establishment.md)）
+- 消息序列化/反序列化（由 `CoreBridge` 完成）
+- 安全策略（由 `PolicyEngine` 完成）
 
-## 7. 命名统一
+### 4.3 故障排查
 
-| 维度 | 之前 | 之后 | 理由 |
-|------|------|------|------|
-| iOS message handler 名 | `nativeBridge`（camelCase） | `NativeBridge`（PascalCase） | 与 Flutter/HM 一致，与 `native-transport.ts` 检测路径匹配 |
-| iOS bootstrap script | 消费者手写在 `WebViewContainer` | `WKWebViewBridgeTransport` 内部注入 | 消费者不可见 |
-| `window.__bridgeReceiveFromNative` | 消费者手写在 `sendToWeb` | transport 内部使用 | 消费者不可见 |
+| 症状 | 可能原因 | 排查方法 |
+|------|---------|---------|
+| `bridge.send()` 返回 false | 发送通道不可用 | Android：现代路径为「无 channel」（pull 建链前的常态，见 [06-channel-establishment.md](06-channel-establishment.md)）或 send 捕获 WebView 异常；`resetTransport()` 只建入站闭环、不建通道。iOS：transport 未注册或 webView 为 nil（构造期决定）。Flutter/HarmonyOS：transport 未 attach 或注入函数自行返回 false |
+| 控制台报 `__jsbridge2__ is not defined` | Bootstrap 未注入 | iOS 检查 `WKWebViewBridgeTransport` 初始化时机；Flutter/HarmonyOS 检查 SDK bundle 加载次序（`__jsbridge2__.receive` 由 SDK 挂载） |
+| 消息发出但 Native 无响应 | 入站 listener 未接线 | 确认建链闭环已完成：Android `resetTransport()` / iOS·Flutter·HarmonyOS `bindTransport()`——listener 由 core 在闭环内自动绑到 transport |
 
-命名统一后，`native-transport.ts` 的检测路径将从第 4 优先级（`$__native__.callNativeApi` fallback）提升到第 2 优先级（`webkit.messageHandlers.NativeBridge` 直接命中），消除 fallback 依赖。
+### 4.4 send() 的语义与失败可观测性
 
-## 8. 不涉及的范围
+**返回值语义（四端统一）**：`send(messageJson)` 的返回值表示「**已接受投递**」（已移交平台发送通道），不表示「已送达 JS」——系统级发送 API 均为 fire-and-forget（`postMessage` 返回 `void`、`runJavaScript` 不回传 JS 结果、`evaluateJavaScript` 的错误是延迟回调），同步 `Bool` 契约在结构上无法表达「送达」。
 
-| 不改 | 理由 |
-|------|------|
-| Android `resetTransport()` | 已存在且工作正常 |
-| Android `AndroidWebViewBridgeTransport` | 已存在于 `extensions/system/` |
-| `BridgeTransport` protocol/interface/typedef 定义 | 不改签名，只新增具体实现 |
-| `native-transport.ts` | 无需改动——已支持 `NativeBridge` 路径 |
-| `processIncomingResponses` 系列 | 保留——高级消费者仍可手动调用 |
-| `dispatch()` 返回值语义 | 不改为 void——保留灵活性 |
+**各端 `false` 的触发集不一致**——send 失败的公共可观测出口为 `postEvent` 返回 `false`（C17）；Native 侧内部失败计数不作为跨端可比指标公开：
 
-## 9. 测试策略
+| 平台 | transport 归属 | `false` 触发条件 | 异步失败观察 |
+|------|---------------|-----------------|--------------|
+| iOS | 框架（`WKWebViewBridgeTransport`） | 未注册 / webView 为 nil | 无（`evaluateJavaScript` 延迟错误不外露——零读者观测面已收敛；send 失败的可观测出口为 `postEvent` 返回 `false`，见 C17） |
+| Android | 框架（`AndroidWebViewBridgeTransport`） | 无 channel（现代路径）；send 捕获 WebView 异常后显式返回 false（legacy 路径同款吞异常） | 无（`postMessage` 为 `void`） |
+| Flutter | 宿主注入函数（示例 `flutter_bridge_controller.dart`） | 宿主自定（示例为 try/catch 捕获注入调用异常后显式 `return false`，异常不逃逸） | 无（`runJavaScript` 不上报 JS 错误） |
+| HarmonyOS | 宿主注入函数（示例 `Index.ets`） | 宿主自定（示例为 try/catch 捕获 `runJavaScript` 异常后显式 `return false`，异常不逃逸） | 无 |
 
-### 9.1 iOS BridgeSystemTests
+**已知边界——「receiver 未挂载」不可观测**：iOS / Flutter / HarmonyOS 与 Android legacy 路径的出站注入表达式同形 `__jsbridge2__ && __jsbridge2__.receive && __jsbridge2__.receive(...)`，receiver 未挂载时表达式求值为 `undefined`、不产生任何异常，与成功不可区分。Android 现代路径（API ≥ M）不执行 JS 表达式——经 `WebMessagePort.postMessage` 直接出站，发送通道未就绪时由 transport 显式返回 false。任何基于回调错误的观测都覆盖不了「表达式求值为 undefined」这一分支；排查「JS 侧是否就绪」依赖握手 / lifecycle 信号，而非发送链。
 
-| 用例 | 验证点 |
-|------|--------|
-| `test_transport_send_callsEvaluateJavaScript` | `send()` 调用 `evaluateJavaScript`，JS 字符串包含 `__bridgeReceiveFromNative` |
-| `test_transport_bind_receivesScriptMessage` | `bind()` 后，模拟 `WKScriptMessage` 回调，listener 收到字符串 |
-| `test_transport_normalizeBody_string` | `body` 为 String 时直接传递 |
-| `test_transport_normalizeBody_dictionary` | `body` 为 `[String: Any]` 时 JSON 序列化 |
-| `test_transport_normalizeBody_unsupported` | `body` 为 Int/Bool 时返回 nil，不崩溃 |
-| `test_transport_close_removesHandler` | `close()` 后 UCC 不再持有 transport |
-| `test_transport_messageName_default` | 默认为 "NativeBridge" |
-| `test_jsBridge_bindTransport_fullRoundtrip` | transport 收到消息 → processIncomingResponses → response 通过 transport.send 发回 |
+**JS 侧的对偶行为**：入站消息 reqId 可关联但被放弃（kind 未知 / 信封不可处理）→ `CoreBridgeClient` **立即**以 `E_INTERNAL` 快速失败其关联请求，而非放任其等待超时后伪装成 `E_TIMEOUT`（用例 C50，[09-conformance.md](09-conformance.md) §3）；字节级不可解析的消息结构上无法关联，维持丢弃、诊断日志为 `console.error`。
 
-> WKWebView 测试使用 `XCTestCase` + mock；不依赖真实 WebView 渲染。
+---
 
-### 9.2 Flutter / HM
+## 5. 与其他文档的关系
 
-| 用例 | 验证点 |
-|------|--------|
-| `bindTransport_returnsHandler` | 返回值是函数，调用后触发 processIncomingResponses + sendViaTransport |
-| `sendViaTransport_nullTransport` | transport 为空时返回 false，自增 sendFailureCount |
-| `sendViaTransport_success` | transport 函数被调用，参数为 response JSON |
-| `bindTransport_multipleResponses` | 多条 response 逐条发送 |
+- **信道建立机制**：[06-channel-establishment.md](06-channel-establishment.md) — pull 模型、reqId 往返、端口轮换
+- **生命周期模型**：[05-lifecycle-layers.md](05-lifecycle-layers.md) — Transport 属于 Layer 1
+- **跨平台契约**：[04-cross-platform.md](04-cross-platform.md) — Transport 接口四端签名对齐
+- **设计原则**：[01-design-principles.md](01-design-principles.md) — Transport 抽象验证平台无关性
 
-### 9.3 Conformance
+---
 
-现有 C01–C30 无需修改——本次变更不触及协议层。`bindTransport` 是平台便利层，不属于协议一致性范围，不新增 Conformance 用例。闭环行为由各平台独立测试覆盖（§9.1、§9.2）。
+## 附：实施入口速查
 
-## 10. 破坏性变更分析
+| 平台 | Transport 形态 | 实现文件 / 集成指南 |
+|------|---------------|-------------------|
+| Android | `BridgeTransport` 接口（bind / send / close）+ pull 哑入口 | `extensions/system/AndroidWebViewBridgeTransport`；[js_bridge_android/README.md](../js_bridge_android/README.md) |
+| iOS | `BridgeTransport` 协议 + `WKWebViewBridgeTransport` 适配器（BridgeSystem target） | [js_bridge_ios/README.md](../js_bridge_ios/README.md) |
+| Flutter | 宿主注入函数（webview_flutter `addJavaScriptChannel` 入站 / `runJavaScript` 出站） | [js_bridge_flutter/README.md](../js_bridge_flutter/README.md) |
+| HarmonyOS | 宿主注入函数（ArkWeb `javaScriptProxy` 入站 / `runJavaScript` 出站） | [js_bridge_harmony/README.md](../js_bridge_harmony/README.md) |
 
-| 变更 | 破坏性 | 分析 |
-|------|--------|------|
-| iOS 新增 `BridgeSystem` target | 否 | 纯新增 target + product，不影响 `BridgeCore` |
-| iOS `CoreBridge.sendViaTransport()` | 否 | 纯新增 public 方法 |
-| iOS `CoreBridge.bindTransportListener()` | 否 | `internal` 方法，模块内可见 |
-| iOS `JsBridge.bindTransport()` | 否 | 纯新增 public 方法 |
-| Flutter `CoreBridge.sendViaTransport()` | 否 | 纯新增方法 |
-| Flutter `JsBridge.bindTransport()` | 否 | 纯新增方法 |
-| HM `CoreBridge.sendViaTransport()` | 否 | 纯新增方法 |
-| HM `JsBridge.bindTransport()` | 否 | 纯新增方法 |
-| Example app 简化 | 不涉及库 | Example 代码变更不影响库消费者 |
+信道建立的 pull 模型与 reqId 往返见 [06-channel-establishment.md](06-channel-establishment.md)。
 
-**结论：零破坏性变更。** 所有改动都是新增 API，现有代码无需修改即可继续工作。
-
-## 11. 实施顺序
-
-```
-1. iOS: Package.swift 新增 BridgeSystem target
-2. iOS: CoreBridge.swift 新增 sendViaTransport + bindTransportListener
-3. iOS: JsBridge.swift 新增 bindTransport
-4. iOS: WKWebViewBridgeTransport.swift 新建
-5. iOS: BridgeSystemTests 新建
-6. iOS: Example 简化 (BridgeHost + WebViewContainer)
-7. iOS: swift test 通过
-
-8. Flutter: core_bridge.dart 新增 sendViaTransport
-9. Flutter: js_bridge.dart 新增 bindTransport
-10. Flutter: flutter test 通过
-11. Flutter: Example 简化
-
-12. HM: CoreBridge.ets 新增 sendViaTransport
-13. HM: JsBridge.ets 新增 bindTransport
-14. HM: Example 简化
-
-15. 文档更新: docs/02-architecture.md §6, docs/05-review.md, docs/03-cross-platform.md
-16. 各平台 bindTransport 闭环测试
-```

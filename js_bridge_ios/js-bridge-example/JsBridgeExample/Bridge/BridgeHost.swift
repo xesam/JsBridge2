@@ -11,6 +11,7 @@ final class BridgeHost: NSObject, UINavigationControllerDelegate, UIImagePickerC
     private var loadingAlert: UIAlertController?
     private var timerRunning: Bool = false
     private var timerCounter: Int = 0
+    private var activeTimer: Timer?
     private var imagePickCompletion: ((Result<String, BridgeError>) -> Void)?
     private var locationManager: CLLocationManager?
     private var locationAuthCompletion: ((CLAuthorizationStatus) -> Void)?
@@ -19,19 +20,10 @@ final class BridgeHost: NSObject, UINavigationControllerDelegate, UIImagePickerC
     private var lifecycleExtension: LifecycleExtension?
 
     init(webView: WKWebView) {
-        var config = JsBridge.SecurityConfig.secure()
+        var config = JsBridge.SecurityConfig()
         config.allowedOrigins = ["file://", "https://example.com"]
+        // methodWhitelist 语义为业务方法白名单，协议方法（bridge.handshake 等）由框架自动放行
         config.methodWhitelist = [
-            BridgeApiContract.methodHandshake,
-            "getUser",
-            "request",
-            "timerLog",
-            "showLoading",
-            "getCurrentLocation",
-            "pickImage",
-            "pickInput"
-        ]
-        config.defaultCapabilities = [
             "getUser",
             "request",
             "timerLog",
@@ -44,7 +36,7 @@ final class BridgeHost: NSObject, UINavigationControllerDelegate, UIImagePickerC
         self.bridge = JsBridge(securityConfig: config, pageContextProvider: WebViewPageContextProvider(webView: webView), transport: transport)
         super.init()
         bridge.bindTransport()
-        bridge.resetForNewPage()
+        bridge.resetPageInstance()
         lifecycleExtension = LifecycleExtension(bridge: bridge)
         registerLifecycleObservers()
         registerHandlers()
@@ -57,7 +49,7 @@ final class BridgeHost: NSObject, UINavigationControllerDelegate, UIImagePickerC
     }
 
     private func registerHandlers() {
-        bridge.registerHandler(method: "getUser") { payload in
+        bridge.registerSimpleHandler(method: "getUser") { _, payload in
             guard let object = payload?.asObject else {
                 return .failure(BridgeError(code: "E_INVALID_MESSAGE", message: "invalid payload"))
             }
@@ -72,7 +64,7 @@ final class BridgeHost: NSObject, UINavigationControllerDelegate, UIImagePickerC
             ))
         }
 
-        bridge.registerHandler(method: "request") { [weak self] payload in
+        bridge.registerSimpleHandler(method: "request") { [weak self] _, payload in
             guard let self else {
                 return .failure(BridgeError(code: "E_INTERNAL", message: "bridge host released"))
             }
@@ -83,57 +75,95 @@ final class BridgeHost: NSObject, UINavigationControllerDelegate, UIImagePickerC
             else {
                 return .failure(BridgeError(code: "E_INVALID_PAYLOAD", message: "request.url is required"))
             }
-            return self.performGetRequest(urlString: urlString)
+            return self.performGetRequest(urlString: urlString).asHandlerResult
         }
-        bridge.registerStreamingHandler(method: "timerLog") { [weak self] payload in
+
+        // timerLog: 使用 AsyncHandler 实现真正的无限 streaming
+        bridge.registerAsyncHandler(method: "timerLog") { [weak self] _, payload, emitter in
             guard let self else {
-                return [.failure(BridgeError(code: "E_INTERNAL", message: "bridge host released"))]
+                if let emitter {
+                    await emitter(.failure(BridgeError(code: "E_INTERNAL", message: "bridge host released")), true)
+                }
+                return
             }
+
+            guard let emitter else { return }
+
             let action = payload?.asObject?["action"]?.asString ?? "start"
+
             if action == "start" {
                 if self.timerRunning {
-                    return [.failure(BridgeError(code: "E_INVALID_PAYLOAD", message: "Timer is already running."))]
+                    await emitter(.failure(BridgeError(code: "E_INVALID_PAYLOAD", message: "Timer is already running.")), true)
+                    return
                 }
+
                 self.timerRunning = true
-                var stream: [BridgeHandlerResult] = []
-                for _ in 0..<3 {
+
+                // 启动后台 Timer 实现真正的无限 streaming
+                let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
+                    guard let self else {
+                        timer.invalidate()
+                        return
+                    }
+
+                    if !self.timerRunning {
+                        timer.invalidate()
+                        Task {
+                            await emitter(.success(.object([
+                                "event": .string("stopped"),
+                                "running": .bool(false)
+                            ])), true)
+                        }
+                        return
+                    }
+
                     self.timerCounter += 1
-                    stream.append(.success(.object([
-                        "event": .string("tick"),
-                        "value": .number(Double(Int.random(in: 0..<100))),
-                        "seq": .number(Double(self.timerCounter)),
-                        "running": .bool(true)
-                    ]), done: false))
+                    Task {
+                        await emitter(.success(.object([
+                            "event": .string("tick"),
+                            "value": .number(Double(Int.random(in: 0..<100))),
+                            "seq": .number(Double(self.timerCounter)),
+                            "running": .bool(true)
+                        ])), false)
+                    }
                 }
-                self.timerRunning = false
-                stream.append(.success(.object([
-                    "event": .string("stopped"),
-                    "running": .bool(false)
-                ]), done: true))
-                return stream
+
+                // 保存 timer 引用以便后续可以停止
+                self.activeTimer = timer
+                RunLoop.current.add(timer, forMode: .common)
+
+                return
             }
+
             if action == "stop" {
                 self.timerRunning = false
-                return [.success(.object([
+                self.activeTimer?.invalidate()
+                self.activeTimer = nil
+
+                await emitter(.success(.object([
                     "event": .string("stopped"),
                     "running": .bool(false)
-                ]), done: true)]
+                ])), true)
+                return
             }
-            return [.failure(BridgeError(code: "E_INVALID_PAYLOAD", message: "Timer action must be start or stop."))]
+
+            await emitter(.failure(BridgeError(code: "E_INVALID_PAYLOAD", message: "Timer action must be start or stop.")), true)
         }
-        bridge.registerHandler(method: "showLoading") { [weak self] payload in
+        bridge.registerSimpleHandler(method: "showLoading") { [weak self] _, payload in
             guard let self else {
                 return .failure(BridgeError(code: "E_INTERNAL", message: "bridge host released"))
             }
             let title = payload?.asObject?["title"]?.asString ?? "Loading"
             let content = payload?.asObject?["content"]?.asString ?? "Please wait..."
-            self.presentNativeLoading(title: title, message: content)
+            let durationMs = payload?.asObject?["durationMs"]?.asDouble ?? 1200.0
+            self.presentNativeLoading(title: title, message: content, durationMs: durationMs)
             return .success(.object([
                 "status": .string("shown"),
-                "native": .bool(true)
+                "native": .bool(true),
+                "durationMs": .number(durationMs)
             ]))
         }
-        bridge.registerHandler(method: "getCurrentLocation") { [weak self] payload in
+        bridge.registerSimpleHandler(method: "getCurrentLocation") { [weak self] _, payload in
             guard let self else {
                 return .failure(BridgeError(code: "E_INTERNAL", message: "bridge host released"))
             }
@@ -147,9 +177,9 @@ final class BridgeHost: NSObject, UINavigationControllerDelegate, UIImagePickerC
             if self.locationResultCompletion != nil || self.locationAuthCompletion != nil {
                 return .failure(BridgeError(code: "E_BUSY", message: "location request is already in progress"))
             }
-            return self.performGetCurrentLocation(fine: fine, timeoutSeconds: timeoutSeconds)
+            return self.performGetCurrentLocation(fine: fine, timeoutSeconds: timeoutSeconds).asHandlerResult
         }
-        bridge.registerHandler(method: "pickImage") { [weak self] payload in
+        bridge.registerSimpleHandler(method: "pickImage") { [weak self] _, payload in
             guard let self else {
                 return .failure(BridgeError(code: "E_INTERNAL", message: "bridge host released"))
             }
@@ -167,7 +197,7 @@ final class BridgeHost: NSObject, UINavigationControllerDelegate, UIImagePickerC
                 return .failure(error)
             }
         }
-        bridge.registerHandler(method: "pickInput") { [weak self] _ in
+        bridge.registerSimpleHandler(method: "pickInput") { [weak self] _, _ in
             guard let self else {
                 return .failure(BridgeError(code: "E_INTERNAL", message: "bridge host released"))
             }
@@ -223,7 +253,7 @@ final class BridgeHost: NSObject, UINavigationControllerDelegate, UIImagePickerC
         ]))
     }
 
-    private func presentNativeLoading(title: String, message: String) {
+    private func presentNativeLoading(title: String, message: String, durationMs: Double) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard let top = self.topViewController() else { return }
@@ -242,7 +272,8 @@ final class BridgeHost: NSObject, UINavigationControllerDelegate, UIImagePickerC
             self.loadingAlert = alert
             top.present(alert, animated: true)
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            let duration = max(0.3, durationMs / 1000.0)
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
                 self?.loadingAlert?.dismiss(animated: true)
                 self?.loadingAlert = nil
             }
@@ -275,27 +306,15 @@ final class BridgeHost: NSObject, UINavigationControllerDelegate, UIImagePickerC
 
     private func performPickInput() -> Result<PickInputValue, BridgeError> {
         var result: Result<PickInputValue, BridgeError>?
-        runInteractiveDialog(timeoutSeconds: 20) { top, finish in
-            let alert = UIAlertController(title: "Pick Input", message: "iOS demo input panel", preferredStyle: .alert)
-            alert.addTextField { $0.placeholder = "name"; $0.text = "ios-user" }
-            alert.addTextField { $0.placeholder = "age"; $0.text = "18"; $0.keyboardType = .numberPad }
-            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in
-                finish(.failure(BridgeError(code: "E_CANCELED", message: "launch canceled")))
-            })
-            alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in
-                let name = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let ageRaw = alert.textFields?.dropFirst().first?.text ?? ""
-                guard !name.isEmpty else {
-                    finish(.failure(BridgeError(code: "E_INVALID_PAYLOAD", message: "name is required")))
-                    return
+        runInteractiveDialog(timeoutSeconds: 60) { top, finish in
+            let vc = PickInputViewController { inputResult in
+                let mapped = inputResult.map { tuple in
+                    PickInputValue(name: tuple.name, age: tuple.age)
                 }
-                guard let age = Int(ageRaw) else {
-                    finish(.failure(BridgeError(code: "E_INVALID_PAYLOAD", message: "age must be number")))
-                    return
-                }
-                finish(.success(PickInputValue(name: name, age: age)))
-            })
-            top.present(alert, animated: true)
+                finish(mapped)
+            }
+            let nav = UINavigationController(rootViewController: vc)
+            top.present(nav, animated: true)
         } completion: { interactiveResult in
             result = interactiveResult
         }
@@ -433,7 +452,7 @@ final class BridgeHost: NSObject, UINavigationControllerDelegate, UIImagePickerC
             }
             let timeoutWork = DispatchWorkItem { [weak self] in
                 guard self?.locationResultCompletion != nil else { return }
-                self?.locationResultCompletion?(.failure(BridgeError(code: "E_TIMEOUT", message: "Location request timeout")))
+                self?.locationResultCompletion?(.failure(BridgeError(code: "E_INTERNAL", message: "Location request timeout")))  // 返回 E_INTERNAL 而非 E_TIMEOUT——E_TIMEOUT 为 JS 本地码，不跨端传输（docs/03 §8）
             }
             self.locationTimeoutWorkItem = timeoutWork
             DispatchQueue.main.asyncAfter(deadline: .now() + timeoutSeconds, execute: timeoutWork)
@@ -486,7 +505,7 @@ final class BridgeHost: NSObject, UINavigationControllerDelegate, UIImagePickerC
                 completion(outcome)
                 return
             }
-            completion(.failure(BridgeError(code: "E_TIMEOUT", message: "operation timeout")))
+            completion(.failure(BridgeError(code: "E_INTERNAL", message: "operation timeout")))  // 返回 E_INTERNAL 而非 E_TIMEOUT——E_TIMEOUT 为 JS 本地码，不跨端传输（docs/03 §8）
             return
         }
 
@@ -497,7 +516,7 @@ final class BridgeHost: NSObject, UINavigationControllerDelegate, UIImagePickerC
             semaphore.signal()
         }
         if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
-            completion(.failure(BridgeError(code: "E_TIMEOUT", message: "operation timeout")))
+            completion(.failure(BridgeError(code: "E_INTERNAL", message: "operation timeout")))  // 返回 E_INTERNAL 而非 E_TIMEOUT——E_TIMEOUT 为 JS 本地码，不跨端传输（docs/03 §8）
             return
         }
         completion(outcome ?? .failure(BridgeError(code: "E_INTERNAL", message: "missing async result")))
@@ -572,7 +591,7 @@ final class BridgeHost: NSObject, UINavigationControllerDelegate, UIImagePickerC
         let completion = imagePickCompletion
         imagePickCompletion = nil
         picker.dismiss(animated: true) {
-            completion?(.failure(BridgeError(code: "E_CANCELED", message: "launch canceled")))
+            completion?(.failure(BridgeError(code: "E_INTERNAL", message: "launch canceled")))  // 返回 E_INTERNAL 而非 E_CANCELED——E_CANCELED 为 JS 本地码，不跨端传输（docs/03 §8）
         }
     }
 
@@ -627,19 +646,25 @@ private final class WebViewPageContextProvider: PageContextProvider {
     }
 
     private func normalizeOrigin(_ url: URL?) -> String {
-        guard let url else {
+        // about: 为示例层语义（WebView 空白页），保留原有映射；
+        // 其余交给核心 OriginNormalizer（docs/03 §9 细则 5）：
+        // file → "file://"；host 类 origin 小写 + 默认端口省略、非默认保留；
+        // URL 缺失 → ""（fail-closed，不再用 "about:blank" 占位）。
+        if url?.scheme?.lowercased() == "about" {
             return "about:blank"
         }
-        switch url.scheme?.lowercased() {
-        case "file":
-            return "file://"
-        case "about":
-            return "about:blank"
-        default:
-            if let host = url.host, let scheme = url.scheme {
-                return "\(scheme)://\(host)"
-            }
-            return "about:blank"
+        return OriginNormalizer.normalize(url)
+    }
+}
+
+private extension Result where Success == JSONValue?, Failure == BridgeError {
+    /// 宿主的 Result 风格实现 → SimpleHandler 的单帧结果
+    var asHandlerResult: BridgeHandlerResult {
+        switch self {
+        case .success(let value):
+            return .success(value)
+        case .failure(let error):
+            return .failure(error)
         }
     }
 }

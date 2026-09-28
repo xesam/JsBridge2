@@ -7,12 +7,6 @@ import org.json.JSONObject;
 import io.github.xesam.android.bridge.api.contract.BridgeApiContract;
 
 public class BridgeError {
-    public static final class NotFound extends BridgeError {
-        public NotFound(String methodName) {
-            super(BridgeApiContract.ERR_METHOD_NOT_FOUND, "Method not found: " + methodName);
-        }
-    }
-
     private final String code;
     private final String message;
     private final boolean retryable;
@@ -62,6 +56,22 @@ public class BridgeError {
             throw new RuntimeException(e);
         }
         return json;
+    }
+
+    public String getCode() {
+        return code;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public boolean isRetryable() {
+        return retryable;
+    }
+
+    public JSONObject getDetails() {
+        return details;
     }
 
         @Override

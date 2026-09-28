@@ -1,206 +1,149 @@
-# JsBridge2
+# JsBridge2 文档导航
 
-多端 JS-Native 通信桥接库，支持 Android、iOS、Flutter、HarmonyOS 四个平台。为 WebView 内运行的 JS 页面与宿主 Native 应用之间提供结构化、有状态的双向通信能力。
+本目录包含 JsBridge2 的完整设计文档与实施指南。
 
-> **核心目标不是复用同一套运行时代码，而是让各端遵循同一套协议边界、会话模型和共享 WebAssets。**
-
----
-
-## 项目定位与目标
-
-WebView 内嵌 H5 是跨平台业务的常见模式，但各平台原生提供的 JS-Native 通信接口差异显著（Android 的 `WebMessagePort`、iOS 的 `WKScriptMessageHandler`、Flutter 的 JS channel、HarmonyOS 的 ArkWeb bridge），导致：
-
-- JS 侧需要针对不同平台写多份适配代码，维护成本高
-- 缺乏统一的会话模型、握手机制和错误处理约定
-- 安全策略（来源校验、能力管控）各自为战，难以复用
-
-| 问题 | JsBridge2 的解法 |
-|------|-----------------|
-| 各端 JS 接口不统一 | 共享 WebAssets：同一套 JS 文件跨四端运行 |
-| 缺乏会话与握手机制 | Protocol v1：规定消息信封格式、握手方法、会话生命周期 |
-| 安全策略分散 | 固定评估顺序的安全策略链，宿主只扩展不覆盖 |
-| Native 多端重复实现 | 分层内核：各平台独立实现，但遵循同一协议契约 |
+> **📖 阅读提示**: 文档聚焦于协议/架构/设计层面,各端具体集成代码请查看各平台项目 README。
 
 ---
 
-## 核心设计原则
+## 快速开始
 
-**Protocol-first（协议优先）**：所有平台实现均以 Protocol v1 消息信封为契约。任何新特性必须先明确协议语义，再落地到各端实现。
+各端集成指南位于各平台项目中：
 
-**Behavior-consistent（行为一致）**：四个平台在握手、会话建立、错误码、超时处理等核心行为上必须完全一致。各端均有 `tests/js/bridge-client-conformance.cases.js`（路径前缀为 `js_bridge_XX/`）作为 JS 侧行为验收用例集。
+- **Android**: [js_bridge_android/README.md](../js_bridge_android/README.md)
+- **iOS**: [js_bridge_ios/README.md](../js_bridge_ios/README.md)
+- **Flutter**: [js_bridge_flutter/README.md](../js_bridge_flutter/README.md)
+- **HarmonyOS**: [js_bridge_harmony/README.md](../js_bridge_harmony/README.md)
 
-**Layered kernel（分层内核）**：
-
-```
-api       → 稳定的公共契约（BridgeMessage、BridgeError、BridgeApiContract）
-core      → Tier 1: 纯协议分发（CoreBridge） + Tier 2 入口（JsBridge）
-security  → 上下文、策略链、会话/能力（纯逻辑，无 UI）
-transport → 消息 I/O 抽象（不做策略决策）
-extensions→ 可选适配器（lifecycle、registry、system）
-```
-
-依赖方向单向：`JsBridge → CoreBridge → api`，`security → api`，`extensions → JsBridge | CoreBridge | api`。CoreBridge 零 security 依赖。
-
-**Additive evolution（加法演化）**：协议字段只增不删；宿主自定义通过 `extraPolicies` 和 `extensions` 注入，不修改内核行为。
+完成集成后,阅读以下文档理解设计思路。
 
 ---
 
-## 整体架构概览
+## 核心文档（按逻辑层次组织）
 
-```mermaid
-graph TB
-    subgraph WebPage["WebPage（浏览器环境）"]
-        BP[business/demo-page.js]
-        EX[extensions/*.js]
-        PT[platform/native-transport.js\nplatform/web-entry.js]
-        CR[core/bridge-client.js\ncore/protocol.js]
-    end
+### 1. 设计原则与架构
 
-    subgraph BridgeCore["Bridge Core（各平台 Native）"]
-        API[api 层\nBridgeMessage / BridgeError]
-        CORE[core 层\nCoreBridge + JsBridge]
-        SEC[security 层\n策略链]
-        TRN[core/transport\n消息 I/O]
-        EXT[extensions 层\n可选适配器]
-    end
+- **[01-design-principles.md](01-design-principles.md)** — 五条设计原则、安全分级模型、配置决策
+- **[02-architecture.md](02-architecture.md)** — 分层结构、策略链、安全配置
+- **[03-protocol.md](03-protocol.md)** — 消息格式、会话模型、错误码定义
+- **[04-cross-platform.md](04-cross-platform.md)** — 四端契约、入口签名、安全边界
 
-    subgraph NativePlatform["Native Platform"]
-        AND[Android\nWebView + WebMessagePort]
-        IOS[iOS\nWKWebView + WKScriptMessageHandler]
-        FLT[Flutter\nWebView JS Channel]
-        HM[HarmonyOS\nArkWeb JS Bridge]
-    end
+### 2. 核心机制详解
 
-    BP --> EX --> PT --> CR
-    CR -- "Protocol v1 消息" --> TRN
-    TRN --> CORE --> SEC --> API
-    EXT --> CORE
-    TRN --> AND & IOS & FLT & HM
+- **[05-lifecycle-layers.md](05-lifecycle-layers.md)** — 三层生命周期模型（WebView / Session / Scope）
+- **[06-channel-establishment.md](06-channel-establishment.md)** — 信道建立 pull 模型与 reqId 往返
+- **[07-transport-bridge-design.md](07-transport-bridge-design.md)** — Transport 抽象与平台适配
+- **[08-handler-interface-contract.md](08-handler-interface-contract.md)** — CoreBridge 接口契约规范（Simple/Async handler，四端实现规范）
+
+### 3. 验证与测试
+
+- **[09-conformance.md](09-conformance.md)** — 一致性验收用例（C01–C65；编号登记正本见其 §3，C09/C44 为登记空缺）
+- [origin-normalizer-vectors.json](origin-normalizer-vectors.json) — origin 归一化校验向量正本（C54，由 `scripts/check_origin_vectors.sh` 强制四端一致）
+
+---
+
+## 快速导航：按关注点查找
+
+### 我想了解...
+
+| 关注点 | 推荐文档 | 关键章节 |
+|--------|---------|---------|
+| **快速上手集成** | 各端 README | Android/iOS/Flutter/HarmonyOS 项目 |
+| **SPA 应用适配** | 05-lifecycle-layers.md | §0 使用方关注要点 |
+| **安全配置（null/完整配置）** | 01-design-principles.md | §2 渐进增强的实际体现（§2.2 策略链装配 / §2.5 安全分级） |
+| **错误排查** | 06-channel-establishment.md | §6.2 故障排查（握手超时、通道失效等） |
+| **为什么采用 pull 模型** | 01-design-principles.md, 06-channel-establishment.md | §4.1, §1 设计原则 |
+| **生命周期分层原因** | 01-design-principles.md | §4.2 生命周期：为什么分三层 |
+| **四端 API 对齐规则** | 04-cross-platform.md | §3 协议一致性边界（通道建立入口契约在 §3.1） |
+
+### 我遇到了...
+
+| 症状 | 排查文档 | 关键内容 |
+|------|---------|---------|
+| 握手超时 | 06-channel-establishment.md §6.2 | 检测容器环境、确认 bind 调用 |
+| 路由切换后旧回调仍执行 | 05-lifecycle-layers.md §0.2 | SPA 需要 AbortSignal |
+| 后退后通道失效 | 06-channel-establishment.md §5.2 | Bfcache 恢复机制 |
+| `__jsbridge2__ is not defined` | 07-transport-bridge-design.md §4.3 | Bootstrap 注入时机 |
+
+---
+
+## 文档关系图
+
 ```
+01-design-principles (设计原则) ←─┐
+    ↓ 被实现                     │
+02-architecture (架构)            │
+    ↓ 遵循                        │
+03-protocol (协议定义)            │ 相互引用
+    ↓ 被实现                     │
+04-cross-platform (四端契约) ─────┤
+    ↓ 应用                        │
+05-lifecycle-layers (生命周期) ───┤
+    ↓ 依赖                        │
+06-channel-establishment (信道) ──┤
+    ↓ 使用                        │
+07-transport-bridge-design ───────┤
+    (Transport 抽象)              │
+    ↓ 依赖                        │
+08-handler-interface-contract ────┘
+    (Handler 契约)
 
-```mermaid
-sequenceDiagram
-    participant JS as JS 页面
-    participant WA as WebAssets<br/>(bridge-client.js)
-    participant TR as Transport 层
-    participant SEC as Security 策略链
-    participant H as Native Handler
-
-    JS->>WA: bridge.invoke(method, payload)
-    WA->>TR: 封装 Protocol v1 消息<br/>{ id, sessionId, kind:"request", method, ... }
-    TR->>SEC: postMessage / JSChannel
-    SEC->>SEC: 1. RequestShapePolicy<br/>2. HandshakeGatePolicy<br/>3. AccessControlPolicy<br/>4. extraPolicies
-    SEC->>H: 分发到对应 handler
-    H-->>TR: 返回 { kind:"response", ok, payload }
-    TR-->>WA: 回调 JS resolve/reject
-    WA-->>JS: Promise resolved
+09-conformance (验收用例) ← 覆盖所有设计点
 ```
 
 ---
 
-## 各平台实现概览
+## 使用方典型路径
 
-| 平台 | 语言 | 传输层 | Core 入口 |
-|------|------|--------|-----------|
-| Android（参考实现） | Java 8 | `WebMessagePort` / 降级 `JavascriptChannel` | `js_bridge_android/js-bridge-core/` |
-| iOS | Swift Package | `WKWebView` + `WKScriptMessageHandler` / `WKUserScript` | `js_bridge_ios/js-bridge-core-swift/Sources/Bridge/` |
-| Flutter | Dart | WebView JS channel + platform bridge adapter | `js_bridge_flutter/packages/js_bridge_core/lib/src/` |
-| HarmonyOS | ArkTS | ArkWeb JS Bridge API（`@ohos.web.webview`） | `js_bridge_hm/js-bridge-core/src/main/ets/` |
+### 路径 1：新项目集成（0 → 可用）
 
----
+1. 选择平台查看集成指南（见上方"快速开始"）
+2. 理解安全配置选项 [01-design-principles.md §2.4 推荐配置模式](01-design-principles.md)
+3. 运行验收用例 [09-conformance.md](09-conformance.md) 验证集成
 
-## 共享 WebAssets
+### 路径 2：从 null 配置升级到完整安全配置
 
-四端必须携带完全相同的 WebAssets 文件，运行 `pnpm check` 验证一致性。
+1. 阅读 [01-design-principles.md §2.5 安全分级](01-design-principles.md) 了解配置要求
+2. 参考 [02-architecture.md §4](02-architecture.md) 理解策略链
+3. 实施 [04-cross-platform.md §3.2](04-cross-platform.md) 的 PageContextProvider
+4. 参考各端 README 的"安全模式"章节配置
 
-```mermaid
-graph TD
-    subgraph business["business 层（业务）"]
-        DP[demo-page.js<br/>示例业务页面，调用 bridge API]
-    end
-    subgraph extensions["extensions 层（可选扩展）"]
-        LC[lifecycle-ext.js<br/>生命周期事件订阅]
-        RD[ready-ext.js<br/>bridge ready 状态封装]
-        SE[session-ext.js<br/>会话信息访问]
-    end
-    subgraph platform["platform 层（传输适配）"]
-        NT[native-transport.js<br/>与各平台 Native 通信的底层通道]
-        WE[web-entry.js<br/>WebAssets 初始化入口]
-    end
-    subgraph core["core 层（协议核心）"]
-        BC[bridge-client.js<br/>JS 侧请求/响应/事件管理]
-        PR[protocol.js<br/>Protocol v1 消息信封定义与序列化]
-    end
-    business --> extensions --> platform --> core
-```
+### 路径 3：SPA 应用适配
 
-Android 参考路径：`js_bridge_android/js-bridge-example/src/main/assets/web/`
+1. 阅读 [05-lifecycle-layers.md §0](05-lifecycle-layers.md) 症状自查
+2. 实施 AbortSignal scope 管理（见 §0.1 示例）
+3. 运行 C24–C27 验收用例确认
+
+### 路径 4：故障排查
+
+1. 根据症状在上方"我遇到了..."表格查找对应文档
+2. 按文档故障排查章节逐项检查
+3. 无法解决时带着检查结果提问（控制台日志 + 平台版本）
+
+### 路径 5：理解设计思路（贡献者/深度使用者）
+
+1. [01-design-principles.md](01-design-principles.md) — 为什么这样设计
+2. [02-architecture.md](02-architecture.md) — 内部如何组织
+3. [03-protocol.md](03-protocol.md) — 协议细节与约束
+4. [04-cross-platform.md](04-cross-platform.md) — 四端如何保持一致
 
 ---
 
-## 快速上手
+## 版本说明
 
-### Android
-
-```bash
-cd js_bridge_android
-./gradlew :js-bridge-core:test
-./gradlew :js-bridge-core:test --tests "*.PolicyGroupsTest"
-./gradlew :js-bridge-example:assembleDebug
-./gradlew lint
-```
-
-### iOS
-
-```bash
-cd js_bridge_ios
-swift test --package-path js-bridge-core-swift
-xcodebuild -project js-bridge-example/JsBridgeExample.xcodeproj \
-  -scheme JsBridgeExample \
-  -destination 'generic/platform=iOS Simulator' \
-  build CODE_SIGNING_ALLOWED=NO
-```
-
-### Flutter
-
-```bash
-cd js_bridge_flutter/packages/js_bridge_core
-flutter test
-cd ../..
-flutter test
-flutter analyze
-```
-
-### HarmonyOS
-
-```bash
-cd js_bridge_hm/js-bridge-example
-DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk \
-  /Applications/DevEco-Studio.app/Contents/tools/node/bin/node \
-  /Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw.js \
-  assembleHap --mode module -p product=default --no-daemon
-```
-
-### 共享 WebAssets
-
-WebAssets 正本位于仓库根目录 `web-assets/`，各平台目录下的副本**不纳入版本管理**，需在首次 clone 或修改正本后手动同步：
-
-```bash
-# 首次 clone 后 / 修改 web-assets/ 后：同步到所有平台并校验
-cd web-assets && pnpm sync
-
-# JS 客户端行为验收
-node js_bridge_hm/tests/js/bridge-client-conformance.cases.js
-```
+所有文档基于协议版本 **v1** 编写（2026-09 更新），适用于 Android / iOS / Flutter / HarmonyOS 四端。个别文档另标注自身修订版本（如 [08-handler-interface-contract.md](08-handler-interface-contract.md) 的"规范版本： v1.1"），指该文档自身的修订号，与协议版本 v1 是两个维度。
 
 ---
 
-## 文档
+## 贡献指南
 
-| 文件 | 内容 |
-|------|------|
-| [01-protocol.md](01-protocol.md) | Bridge 协议 — 消息信封、握手/会话、流式、错误码、策略链 |
-| [02-architecture.md](02-architecture.md) | 架构设计 — 分层内核、类图、消息处理流程、扩展层 |
-| [03-cross-platform.md](03-cross-platform.md) | 跨端设计 — 四端对比、一致性保障、WebAssets 机制、新平台接入 |
-| [04-conformance.md](04-conformance.md) | 跨端一致性验收用例（C01–C18） |
-| [05-review.md](05-review.md) | 架构评审 — 原则落地核查、跨端 API 差异、设计债与改进项 |
+文档修改请遵循以下原则：
+
+1. **使用方视角优先** — 先说"什么时候需要关心"，再说"是什么"
+2. **症状自查先行** — 故障排查章节提供症状-原因对照表
+3. **避免过早优化** — 默认场景说"无需关心"，不要强制用户理解不需要的细节
+4. **时效性清晰** — 正文只保留最终方案，不保留论证过程与历史记录
+5. **跨文档一致性** — 术语、错误码、用例编号保持统一
+6. **集成代码正本在各端 README** — docs/ 内代码块限于契约签名、协议消息示例与论证所需的最小示意；可拷贝的完整集成代码只存在于各平台项目 README，docs 与 README 不重复维护同一段代码（四端差异对照可保留，如 04 §7）
+
+文档结构变更需同步更新本导航文件。

@@ -8,7 +8,7 @@ public struct HandshakeGatePolicy: PolicyRule {
             return .allow()
         }
         if !input.ready {
-            return .deny(BridgeError(code: BridgeApiContract.errorPolicyDeny, message: "bridge handshake required"))
+            return .deny(BridgeError(code: BridgeApiContract.errorNotReady, message: "bridge session not ready"))
         }
         return .allow()
     }

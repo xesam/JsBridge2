@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -8,22 +9,15 @@ import 'package:image_picker/image_picker.dart';
 import 'package:js_bridge_core/js_bridge_core.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../demo/pick_input_screen.dart';
+
 class FlutterBridgeController with WidgetsBindingObserver {
   FlutterBridgeController({required this.navigatorKey})
       : bridge = JsBridge(
-          securityConfig: SecurityConfig.secure()
-            ..allowedOrigins = <String>{'file://', 'flutter-asset://', 'about:blank'}
-            ..methodWhitelist = <String>{
-              'bridge.handshake',
-              'getUser',
-              'request',
-              'timerLog',
-              'showLoading',
-              'pickImage',
-              'pickInput',
-              'getCurrentLocation',
-            }
-            ..defaultCapabilities = <String>{
+          securityConfig: SecurityConfig(
+            allowedOrigins: <String>{'file://', 'flutter-asset://'},
+            methodWhitelist: <String>{
+              // methodWhitelist 语义为业务方法白名单，协议方法（bridge.handshake 等）由框架自动放行
               'getUser',
               'request',
               'timerLog',
@@ -32,6 +26,7 @@ class FlutterBridgeController with WidgetsBindingObserver {
               'pickInput',
               'getCurrentLocation',
             },
+          ),
         ) {
     WidgetsBinding.instance.addObserver(this);
     bridge.attachPageContextProvider(
@@ -60,7 +55,7 @@ class FlutterBridgeController with WidgetsBindingObserver {
         NavigationDelegate(
           onPageStarted: (String url) {
             _currentUrl = url;
-            bridge.resetForNewPage();
+            bridge.resetPageInstance();
             unawaited(_lifecycleExtension.onHostEvent('created'));
           },
           onPageFinished: (String url) {
@@ -74,10 +69,11 @@ class FlutterBridgeController with WidgetsBindingObserver {
   final JsBridge bridge;
   late final WebViewController webViewController;
   late final LifecycleExtension _lifecycleExtension;
-  String _currentUrl = 'about:blank';
+  String? _currentUrl;
   bool _loadingVisible = false;
   bool _timerRunning = false;
   int _timerCounter = 0;
+  Timer? _activeTimer;
   final ImagePicker _imagePicker = ImagePicker();
 
   Future<void> load() {
@@ -101,7 +97,7 @@ class FlutterBridgeController with WidgetsBindingObserver {
   }
 
   void _registerHandlers() {
-    bridge.registerHandler('getUser', (dynamic payload) async {
+    bridge.registerSimpleHandler('getUser', (TrustedPageContext context, dynamic payload) async {
       final Map<String, dynamic> object = _asMap(payload);
       final String? userId = object['userId'] as String?;
       if (userId == '001') {
@@ -116,7 +112,7 @@ class FlutterBridgeController with WidgetsBindingObserver {
       );
     });
 
-    bridge.registerHandler('request', (dynamic payload) async {
+    bridge.registerSimpleHandler('request', (TrustedPageContext context, dynamic payload) async {
       final Map<String, dynamic> object = _asMap(payload);
       final String? urlString = object['url'] as String?;
       if (urlString == null || urlString.isEmpty) {
@@ -148,53 +144,71 @@ class FlutterBridgeController with WidgetsBindingObserver {
       }
     });
 
-    bridge.registerStreamingHandler('timerLog', (dynamic payload) async {
+    // timerLog: 使用新的 AsyncHandler 实现真正的无限 streaming
+    bridge.registerAsyncHandler('timerLog', (TrustedPageContext context, dynamic payload, ResponseEmitter? emitter) async {
       final Map<String, dynamic> object = _asMap(payload);
       final String action = (object['action'] as String?) ?? 'start';
+
+      if (emitter == null) return;
+
       if (action == 'stop') {
         _timerRunning = false;
-        return const <BridgeHandlerResult>[
-          BridgeHandlerResult.success(
+        _activeTimer?.cancel();
+        _activeTimer = null;
+        await emitter(
+          const Result<dynamic, BridgeError>.success(
             <String, dynamic>{'event': 'stopped', 'running': false},
           ),
-        ];
+          true,
+        );
+        return;
       }
+
       if (_timerRunning) {
-        return const <BridgeHandlerResult>[
-          BridgeHandlerResult.failure(
+        await emitter(
+          const Result<dynamic, BridgeError>.failure(
             BridgeError(
               code: 'E_INVALID_PAYLOAD',
               message: 'Timer is already running.',
             ),
           ),
-        ];
+          true,
+        );
+        return;
       }
+
       _timerRunning = true;
-      final List<BridgeHandlerResult> stream = <BridgeHandlerResult>[];
-      for (int i = 0; i < 3; i += 1) {
+
+      // 启动后台 Timer 实现真正的无限 streaming
+      _activeTimer = Timer.periodic(const Duration(seconds: 1), (Timer timer) async {
+        if (!_timerRunning) {
+          timer.cancel();
+          _activeTimer = null;
+          await emitter(
+            const Result<dynamic, BridgeError>.success(
+              <String, dynamic>{'event': 'stopped', 'running': false},
+            ),
+            true,
+          );
+          return;
+        }
+
         _timerCounter += 1;
-        stream.add(
-          BridgeHandlerResult.success(
+        await emitter(
+          Result<dynamic, BridgeError>.success(
             <String, dynamic>{
               'event': 'tick',
               'value': DateTime.now().millisecondsSinceEpoch % 100,
               'seq': _timerCounter,
               'running': true,
             },
-            done: false,
           ),
+          false,
         );
-      }
-      _timerRunning = false;
-      stream.add(
-        const BridgeHandlerResult.success(
-          <String, dynamic>{'event': 'stopped', 'running': false},
-        ),
-      );
-      return stream;
+      });
     });
 
-    bridge.registerHandler('showLoading', (dynamic payload) async {
+    bridge.registerSimpleHandler('showLoading', (TrustedPageContext context, dynamic payload) async {
       final Map<String, dynamic> object = _asMap(payload);
       final BuildContext? context = navigatorKey.currentContext;
       if (context == null) {
@@ -208,6 +222,8 @@ class FlutterBridgeController with WidgetsBindingObserver {
       }
       final String title = (object['title'] as String?) ?? 'Loading';
       final String content = (object['content'] as String?) ?? 'Please wait...';
+      final int durationMs = (object['durationMs'] as num?)?.toInt() ?? 1200;
+
       _loadingVisible = true;
       showDialog<void>(
         context: context,
@@ -229,116 +245,45 @@ class FlutterBridgeController with WidgetsBindingObserver {
           );
         },
       );
-      Future<void>.delayed(const Duration(milliseconds: 1200), () {
+      Future<void>.delayed(Duration(milliseconds: math.max(300, durationMs)), () {
         final NavigatorState? navigator = navigatorKey.currentState;
         if (_loadingVisible && navigator != null) {
           navigator.pop();
           _loadingVisible = false;
         }
       });
-      return const BridgeHandlerResult.success(<String, dynamic>{
+      return BridgeHandlerResult.success(<String, dynamic>{
         'status': 'shown',
         'native': true,
+        'durationMs': durationMs,
       });
     });
 
-    bridge.registerHandler('pickInput', (dynamic payload) async {
+    bridge.registerSimpleHandler('pickInput', (TrustedPageContext context, dynamic payload) async {
       final BuildContext? context = navigatorKey.currentContext;
       if (context == null) {
         return const BridgeHandlerResult.failure(
           BridgeError(code: 'E_INTERNAL', message: 'navigator context unavailable'),
         );
       }
-      final TextEditingController nameController =
-          TextEditingController(text: 'flutter-user');
-      final TextEditingController ageController =
-          TextEditingController(text: '18');
-      final Completer<BridgeHandlerResult> completer =
-          Completer<BridgeHandlerResult>();
-      showDialog<void>(
-        context: context,
-        builder: (BuildContext dialogContext) {
-          return AlertDialog(
-            title: const Text('Pick Input'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(labelText: 'name'),
-                ),
-                TextField(
-                  controller: ageController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'age'),
-                ),
-              ],
-            ),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () {
-                  Navigator.of(dialogContext).pop();
-                  completer.complete(
-                    const BridgeHandlerResult.failure(
-                      BridgeError(code: 'E_CANCELED', message: 'launch canceled'),
-                    ),
-                  );
-                },
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  final int? age = int.tryParse(ageController.text.trim());
-                  if (nameController.text.trim().isEmpty) {
-                    Navigator.of(dialogContext).pop();
-                    completer.complete(
-                      const BridgeHandlerResult.failure(
-                        BridgeError(
-                          code: 'E_INVALID_PAYLOAD',
-                          message: 'name is required',
-                        ),
-                      ),
-                    );
-                    return;
-                  }
-                  if (age == null) {
-                    Navigator.of(dialogContext).pop();
-                    completer.complete(
-                      const BridgeHandlerResult.failure(
-                        BridgeError(
-                          code: 'E_INVALID_PAYLOAD',
-                          message: 'age must be number',
-                        ),
-                      ),
-                    );
-                    return;
-                  }
-                  Navigator.of(dialogContext).pop();
-                  completer.complete(
-                    BridgeHandlerResult.success(<String, dynamic>{
-                      'name': nameController.text.trim(),
-                      'age': age,
-                      'native': true,
-                    }),
-                  );
-                },
-                child: const Text('OK'),
-              ),
-            ],
-          );
-        },
+      final BridgeHandlerResult? result = await Navigator.of(context).push<BridgeHandlerResult>(
+        MaterialPageRoute<BridgeHandlerResult>(
+          builder: (BuildContext context) => const PickInputScreen(),
+        ),
       );
-      return completer.future;
+      return result ?? const BridgeHandlerResult.failure(
+        BridgeError(code: 'E_INTERNAL', message: 'launch canceled'),  // 返回 E_INTERNAL 而非 E_CANCELED——E_CANCELED 为 JS 本地码，不跨端传输（docs/03 §8）
+      );
     });
 
-    bridge.registerHandler('pickImage', (dynamic payload) async {
+    bridge.registerSimpleHandler('pickImage', (TrustedPageContext context, dynamic payload) async {
       try {
         final XFile? file = await _imagePicker.pickImage(
           source: ImageSource.gallery,
         );
         if (file == null) {
           return const BridgeHandlerResult.failure(
-            BridgeError(code: 'E_CANCELED', message: 'launch canceled'),
+            BridgeError(code: 'E_INTERNAL', message: 'launch canceled'),  // 返回 E_INTERNAL 而非 E_CANCELED——E_CANCELED 为 JS 本地码，不跨端传输（docs/03 §8）
           );
         }
         return BridgeHandlerResult.success(<String, dynamic>{
@@ -354,7 +299,7 @@ class FlutterBridgeController with WidgetsBindingObserver {
       }
     });
 
-    bridge.registerHandler('getCurrentLocation', (dynamic payload) async {
+    bridge.registerSimpleHandler('getCurrentLocation', (TrustedPageContext context, dynamic payload) async {
       final Map<String, dynamic> object = _asMap(payload);
       final String accuracy = (object['accuracy'] as String?) ?? 'coarse';
       final int timeoutMs = (object['timeoutMs'] as num?)?.toInt() ?? 10000;
@@ -410,7 +355,7 @@ class FlutterBridgeController with WidgetsBindingObserver {
         });
       } on TimeoutException {
         return const BridgeHandlerResult.failure(
-          BridgeError(code: 'E_TIMEOUT', message: 'Location request timeout'),
+          BridgeError(code: 'E_INTERNAL', message: 'Location request timeout'),  // 返回 E_INTERNAL 而非 E_TIMEOUT——E_TIMEOUT 为 JS 本地码，不跨端传输（docs/03 §8）
         );
       } catch (error) {
         return BridgeHandlerResult.failure(
@@ -426,7 +371,7 @@ class FlutterBridgeController with WidgetsBindingObserver {
   Future<void> _sendToWeb(String messageJson) {
     final String escaped = jsonEncode(messageJson);
     return webViewController.runJavaScript(
-      'window.__bridgeReceiveFromNative && window.__bridgeReceiveFromNative($escaped)',
+      'window.__jsbridge2__ && window.__jsbridge2__.receive && window.__jsbridge2__.receive($escaped)',
     );
   }
 
@@ -439,34 +384,21 @@ class FlutterBridgeController with WidgetsBindingObserver {
     }
     return const <String, dynamic>{};
   }
-
-  static String _normalizeOrigin(String rawUrl) {
-    final Uri? uri = Uri.tryParse(rawUrl);
-    if (uri == null) {
-      return 'about:blank';
-    }
-    if (uri.scheme == 'file') {
-      return 'file://';
-    }
-    if (uri.scheme.startsWith('flutter')) {
-      return '${uri.scheme}://';
-    }
-    if (uri.scheme == 'about') {
-      return 'about:blank';
-    }
-    return '${uri.scheme}://${uri.host}';
-  }
 }
 
 class _WebviewPageContextProvider implements PageContextProvider {
   _WebviewPageContextProvider(this._currentUrlGetter);
 
-  final String Function() _currentUrlGetter;
+  final String? Function() _currentUrlGetter;
 
   @override
   TrustedPageContext createContext(BridgeMessage message, String pageInstanceId) {
+    // origin 必须经由核心层归一化函数派生（docs/03 §9 细则 5，验收锚点 C54）：
+    // file:///... → 'file://'，flutter-asset:///... → 'flutter-asset://'；
+    // 非层级形态（about:blank 等）与无法解析/未加载（null）时归一化为空串
+    // （fail-closed，永不命中白名单）。
     return TrustedPageContext(
-      origin: FlutterBridgeController._normalizeOrigin(_currentUrlGetter()),
+      origin: OriginNormalizer.normalize(_currentUrlGetter()),
       pageInstanceId: pageInstanceId,
     );
   }

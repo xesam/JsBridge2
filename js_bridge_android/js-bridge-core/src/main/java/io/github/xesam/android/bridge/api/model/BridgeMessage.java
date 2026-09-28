@@ -29,10 +29,32 @@ public final class BridgeMessage {
         BridgeMessage ret = new BridgeMessage();
         try {
             JSONObject json = new JSONObject(messageJsonString);
-            ret.id = json.optString("id", "");
-            ret.sessionId = json.optString("sessionId", "");
-            ret.kind = json.optString("kind", KIND_REQUEST);
-            ret.method = json.optString("method", "");
+            Object idRaw = json.opt("id");
+            if (!(idRaw instanceof String)) {
+                return null;
+            }
+            ret.id = (String) idRaw;
+            Object sessionIdRaw = json.opt("sessionId");
+            if (sessionIdRaw == null) {
+                ret.sessionId = "";
+            } else if (sessionIdRaw instanceof String) {
+                ret.sessionId = (String) sessionIdRaw;
+            } else {
+                return null;
+            }
+            Object kindRaw = json.opt("kind");
+            if (!(kindRaw instanceof String)
+                    || (!KIND_REQUEST.equals(kindRaw)
+                        && !KIND_RESPONSE.equals(kindRaw)
+                        && !KIND_EVENT.equals(kindRaw))) {
+                return null;
+            }
+            ret.kind = (String) kindRaw;
+            Object methodRaw = json.opt("method");
+            if (!(methodRaw instanceof String)) {
+                return null;
+            }
+            ret.method = (String) methodRaw;
             ret.ts = json.optLong("ts", 0L);
             ret.timeoutMs = json.optLong("timeoutMs", 0L);
             ret.keep = json.optBoolean("keep", false);
@@ -46,9 +68,6 @@ public final class BridgeMessage {
             }
             ret.error = json.has("error") ? json.opt("error") : null;
             ret.scopeId = json.optString("scopeId", null);
-            if (ret.kind.isEmpty() || ret.method.isEmpty()) {
-                return null;
-            }
         } catch (JSONException e) {
             return null;
         }
@@ -96,17 +115,9 @@ public final class BridgeMessage {
         response.kind = KIND_RESPONSE;
         response.method = requestMessage.method;
         response.ts = System.currentTimeMillis();
+        response.timeoutMs = requestMessage.timeoutMs;
         response.keep = requestMessage.keep;
         return response;
-    }
-
-    public BridgeMessage withSessionIdIfEmpty(String fallbackSessionId) {
-        if ((sessionId == null || sessionId.isEmpty())
-                && fallbackSessionId != null
-                && !fallbackSessionId.isEmpty()) {
-            sessionId = fallbackSessionId;
-        }
-        return this;
     }
 
     public boolean isRequest() {

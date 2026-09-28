@@ -17,9 +17,8 @@ if [ ! -f gradlew ]; then
 fi
 
 chmod +x gradlew 2>/dev/null || true
-./gradlew :js-bridge-core:test
-
-if [ "${PIPESTATUS[0]}" -eq 0 ]; then
+# set -e 下 `if cmd` 不再整脚本即退——FAILED 分支可达
+if ./gradlew :js-bridge-core:test; then
     echo -e "${GREEN}Android tests PASSED${NC}"
 else
     echo -e "${RED}Android tests FAILED${NC}"

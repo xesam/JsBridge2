@@ -1,0 +1,9 @@
+{
+  "name": "@xesam/js_bridge_core",
+  "version": "0.0.1",
+  "description": "HarmonyOS ArkTS core runtime for JsBridge protocol v1.",
+  "main": "Index.ets",
+  "author": "",
+  "license": "MIT",
+  "dependencies": {}
+}

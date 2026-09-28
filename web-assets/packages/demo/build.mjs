@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, rmSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as babel from '@babel/core'
@@ -11,6 +11,10 @@ const SDK_IIFE = join(DIR, '../sdk/dist/iife/jsbridge-sdk.js')
 
 // 已是 ES5 产物，跳过转译
 const SKIP_TRANSPILE = new Set(['vconsole.min.js'])
+
+// 先清理 dist：copyDir 只增不减——源文件删除后旧副本会留存并被同步到四端
+// WebAssets 目录（见 .bugfix/BUG-03）。
+rmSync(DIST, { recursive: true, force: true })
 
 mkdirSync(DIST, { recursive: true })
 mkdirSync(join(DIST, 'api'), { recursive: true })

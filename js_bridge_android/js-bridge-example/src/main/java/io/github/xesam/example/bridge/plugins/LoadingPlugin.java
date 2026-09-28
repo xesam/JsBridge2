@@ -2,37 +2,63 @@ package io.github.xesam.example.bridge.plugins;
 
 import android.app.AlertDialog;
 import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 
 import org.json.JSONObject;
 
-import io.github.xesam.android.bridge.core.message.MessageHandlerCallback;
-import io.github.xesam.android.bridge.core.message.SimpleNativeMessageHandler;
+import io.github.xesam.android.bridge.api.model.TrustedPageContext;
+import io.github.xesam.android.bridge.core.handler.SimpleHandler;
 import io.github.xesam.example.bridge.JsonPayloadParser;
 
-public final class LoadingPlugin implements SimpleNativeMessageHandler {
+/**
+ * Simple Handler 示例：同步弹出 loading 并在返回时结束通信（恰好一帧）。
+ * 对话框的延时关闭是 fire-and-forget，不参与响应路径。
+ */
+public final class LoadingPlugin implements SimpleHandler {
     private final Context context;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private AlertDialog currentDialog;
 
     public LoadingPlugin(Context context) {
         this.context = context;
     }
 
     @Override
-    public void handle(
-            Object data,
-            MessageHandlerCallback callback) {
-        MessageData messageData = new DialogPayloadParser().getPayload(data.toString());
+    public Object handle(
+            TrustedPageContext trustedPageContext,
+            JSONObject payload) {
+        MessageData messageData = new DialogPayloadParser().getPayload(payload.toString());
+        String title = messageData.title == null || messageData.title.isEmpty() ? "Loading" : messageData.title;
+        String content = messageData.content == null || messageData.content.isEmpty() ? "Please wait..." : messageData.content;
+        long durationMs = messageData.durationMs > 0 ? messageData.durationMs : 1200L;
 
-        new AlertDialog.Builder(context)
-                .setTitle(messageData.title)
-                .setMessage(messageData.content + ":Loading...")
-                .show();
-        JSONObject payload = new JSONObject();
+        if (currentDialog != null && currentDialog.isShowing()) {
+            currentDialog.dismiss();
+        }
+
+        AlertDialog dialog = new AlertDialog.Builder(context)
+                .setTitle(title)
+                .setMessage(content + "\nLoading...")
+                .setCancelable(false)
+                .create();
+        dialog.show();
+        currentDialog = dialog;
+
+        mainHandler.postDelayed(() -> {
+            if (dialog.isShowing()) {
+                dialog.dismiss();
+            }
+        }, Math.max(300, durationMs));
+
+        JSONObject result = new JSONObject();
         try {
-            payload.put("status", "shown");
-            payload.put("native", true);
+            result.put("status", "shown");
+            result.put("native", true);
+            result.put("durationMs", durationMs);
         } catch (Exception ignored) {
         }
-        callback.success(payload);
+        return result;
     }
 
     public static class DialogPayloadParser extends JsonPayloadParser<MessageData> {
@@ -46,5 +72,6 @@ public final class LoadingPlugin implements SimpleNativeMessageHandler {
     public static final class MessageData {
         public String title;
         public String content;
+        public long durationMs;
     }
 }

@@ -20,7 +20,6 @@ class PolicyInput {
 
 abstract class PolicyRule {
   BridgeError? evaluate(PolicyInput input);
-  String get name;
 }
 
 class PolicyEngine {
@@ -40,10 +39,13 @@ class RequestShapePolicy implements PolicyRule {
   const RequestShapePolicy();
 
   @override
-  String get name => 'RequestShapePolicy';
-
-  @override
   BridgeError? evaluate(PolicyInput input) {
+    if (input.message.method.isEmpty) {
+      return const BridgeError(
+        code: BridgeApiContract.errorInvalidMessage,
+        message: 'method is required',
+      );
+    }
     if (input.message.kind != BridgeMessageKind.request) {
       return const BridgeError(
         code: BridgeApiContract.errorInvalidMessage,
@@ -58,52 +60,59 @@ class HandshakeGatePolicy implements PolicyRule {
   const HandshakeGatePolicy();
 
   @override
-  String get name => 'HandshakeGatePolicy';
-
-  @override
   BridgeError? evaluate(PolicyInput input) {
     if (!input.ready && input.message.method != BridgeApiContract.methodHandshake) {
       return const BridgeError(
-        code: BridgeApiContract.errorPolicyDeny,
-        message: 'bridge not ready',
+        code: BridgeApiContract.errorNotReady,
+        message: 'bridge session not ready',
       );
     }
     return null;
   }
 }
 
-class AccessControlPolicy implements PolicyRule {
-  const AccessControlPolicy({
-    required this.allowedOrigins,
-    required this.methodWhitelist,
-  });
+class OriginPolicy implements PolicyRule {
+  const OriginPolicy({required this.allowedOrigins});
 
   final Set<String> allowedOrigins;
-  final Set<String> methodWhitelist;
-
-  @override
-  String get name => 'AccessControlPolicy';
 
   @override
   BridgeError? evaluate(PolicyInput input) {
-    if (!_originAllowed(input.context.origin)) {
+    if (!allowedOrigins.contains(input.context.origin)) {
       return const BridgeError(
         code: BridgeApiContract.errorOriginDeny,
         message: 'origin denied',
       );
     }
+    return null;
+  }
+}
 
-    if (input.message.method == BridgeApiContract.methodHandshake) {
-      return null;
-    }
+class MethodGatePolicy implements PolicyRule {
+  const MethodGatePolicy({required this.methodWhitelist});
 
+  final Set<String> methodWhitelist;
+
+  @override
+  BridgeError? evaluate(PolicyInput input) {
     if (!methodWhitelist.contains(input.message.method)) {
       return const BridgeError(
         code: BridgeApiContract.errorMethodNotAllowed,
         message: 'method not allowed',
       );
     }
+    return null;
+  }
+}
 
+class SessionPolicy implements PolicyRule {
+  const SessionPolicy();
+
+  @override
+  BridgeError? evaluate(PolicyInput input) {
+    if (input.message.method == BridgeApiContract.methodHandshake) {
+      return null;
+    }
     final SessionRecord? session = input.sessionRecord;
     if (session == null) {
       return const BridgeError(
@@ -118,16 +127,6 @@ class AccessControlPolicy implements PolicyRule {
         message: 'session context mismatch',
       );
     }
-    if (!session.capabilities.contains(input.message.method)) {
-      return const BridgeError(
-        code: BridgeApiContract.errorCapabilityDeny,
-        message: 'capability denied',
-      );
-    }
     return null;
-  }
-
-  bool _originAllowed(String origin) {
-    return allowedOrigins.contains('*') || allowedOrigins.contains(origin);
   }
 }

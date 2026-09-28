@@ -4,38 +4,20 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
-import io.github.xesam.android.bridge.api.contract.BridgeApiContract;
 import io.github.xesam.android.bridge.JsBridge;
 
 final class BridgePolicyConfig {
     private BridgePolicyConfig() {
     }
 
-    static JsBridge.KernelConfig createKernelConfig() {
-        return new JsBridge.KernelConfig()
-                .maxReadyListeners(16);
-    }
-
     static JsBridge.SecurityConfig createSecurityConfig() {
-        return JsBridge.SecurityConfig.secure()
+        return new JsBridge.SecurityConfig()
                 .allowedOrigins(new HashSet<>(Arrays.asList("file://", "https://example.com")))
-                .methodWhitelist(allowedMethods())
-                .defaultCapabilities(capabilities());
+                .methodWhitelist(allowedMethods());
     }
 
     private static Set<String> allowedMethods() {
-        return new HashSet<>(Arrays.asList(
-                BridgeApiContract.METHOD_HANDSHAKE,
-                "getUser",
-                "getCurrentLocation",
-                "request",
-                "timerLog",
-                "showLoading",
-                "pickImage",
-                "pickInput"));
-    }
-
-    private static Set<String> capabilities() {
+        // methodWhitelist 语义为业务方法白名单，协议方法（bridge.handshake 等）由框架自动放行
         return new HashSet<>(Arrays.asList(
                 "getUser",
                 "getCurrentLocation",
