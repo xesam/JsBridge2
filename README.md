@@ -177,6 +177,10 @@ node js_bridge_android/js-bridge-example/src/test/js/bridge-client-conformance.c
 
 - [build-jsbridge-from-0-to-1/README.md](build-jsbridge-from-0-to-1/README.md) — 《从 0 到 1 写一个 JsBridge》分章节教程
 
+### 衔接项目
+
+- 打通Web与本地资源的访问： [local-asset](https://github.com/xesam/local-asset)
+
 ## 开源协议
 
 本项目采用 [MIT License](LICENSE) 开源协议。
