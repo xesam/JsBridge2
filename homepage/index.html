@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JsBridge2 — One protocol. Four platforms.</title>
+  <meta name="description" content="Multi-platform JS-Native bridge library. One protocol, one session model, one set of WebAssets — running on Android, iOS, Flutter and HarmonyOS." />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <nav class="nav">
+    <a class="nav-brand" href="#top">
+      <span class="brand-mark">{"→"}</span>
+      <span>JsBridge2</span>
+    </a>
+    <div class="nav-right">
+      <button id="langToggle" class="lang-toggle" type="button" aria-label="Switch language">中文</button>
+      <a class="github-btn" href="https://github.com/xesam/JsBridge2" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        <span>GitHub</span>
+      </a>
+    </div>
+  </nav>
+
+  <main id="top">
+    <section class="hero">
+      <p class="hero-kicker mono" data-i18n="hero.kicker">Multi-platform JS-Native bridge</p>
+      <h1 class="hero-title">
+        <span data-i18n="hero.line1">One protocol.</span><br />
+        <span data-i18n="hero.line2">Four platforms.</span>
+      </h1>
+      <p class="hero-sub" data-i18n="hero.sub">
+        One message protocol, one session model, and one set of WebAssets — running on Android, iOS, Flutter and HarmonyOS. Not a shared runtime: a shared contract.
+      </p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="https://github.com/xesam/JsBridge2" target="_blank" rel="noopener" data-i18n="hero.ctaPrimary">View on GitHub</a>
+        <a class="btn btn-ghost" href="https://github.com/xesam/JSBridge2/blob/master/docs/02-architecture.md" target="_blank" rel="noopener" data-i18n="hero.ctaSecondary">Read the architecture</a>
+      </div>
+      <div class="hero-platforms mono">
+        <span>Android</span><span class="dot">·</span>
+        <span>iOS</span><span class="dot">·</span>
+        <span>Flutter</span><span class="dot">·</span>
+        <span>HarmonyOS</span>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title" data-i18n="problem.title">The problem</h2>
+      <div class="grid grid-2">
+        <article class="card">
+          <h3 data-i18n="problem.c1.title">Fragmented native channels</h3>
+          <p data-i18n="problem.c1.body">Android WebMessagePort, iOS WKScriptMessageHandler, Flutter JS channels, HarmonyOS ArkWeb — every platform speaks a different dialect of JS-Native messaging.</p>
+        </article>
+        <article class="card">
+          <h3 data-i18n="problem.c2.title">No session or handshake</h3>
+          <p data-i18n="problem.c2.body">Ad-hoc bridges lack a handshake, session lifecycle and cancellation semantics — every H5 page reinvents its own transport.</p>
+        </article>
+        <article class="card">
+          <h3 data-i18n="problem.c3.title">Security logic scattered</h3>
+          <p data-i18n="problem.c3.body">Origin checks, method whitelists and session validation end up duplicated and inconsistent across platforms and pages.</p>
+        </article>
+        <article class="card">
+          <h3 data-i18n="problem.c4.title">Four implementations, four behaviors</h3>
+          <p data-i18n="problem.c4.body">Without a common contract, each platform re-implements the bridge — and each drifted implementation raises integration costs.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section section-alt">
+      <h2 class="section-title" data-i18n="solution.title">The JsBridge2 answer</h2>
+      <div class="grid grid-3">
+        <article class="card card-accent">
+          <p class="card-tag mono">01</p>
+          <h3 data-i18n="solution.c1.title">Protocol v1</h3>
+          <p data-i18n="solution.c1.body">A single message envelope — request / response / event — with handshake, session, timeout and scope cancellation defined once, in the spec.</p>
+        </article>
+        <article class="card card-accent">
+          <p class="card-tag mono">02</p>
+          <h3 data-i18n="solution.c2.title">Security policy chain</h3>
+          <p data-i18n="solution.c2.body">A fixed evaluation order: shape → handshake gate → origin → method gate → session → host policies. Hosts extend, never override.</p>
+        </article>
+        <article class="card card-accent">
+          <p class="card-tag mono">03</p>
+          <h3 data-i18n="solution.c3.title">Shared WebAssets</h3>
+          <p data-i18n="solution.c3.body">One jsbridge-sdk.js bundle runs identically in all four native shells. One source of truth, synced to every platform.</p>
+        </article>
+      </div>
+      <p class="section-note" data-i18n="solution.note">The goal is cross-platform protocol consistency — not a shared runtime.</p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title" data-i18n="arch.title">Three layered tiers</h2>
+      <div class="arch">
+        <div class="arch-tier mono">
+          <span class="arch-name">Tier 3 — extensions</span>
+          <span class="arch-desc" data-i18n="arch.t3">lifecycle · registry · system adapters</span>
+        </div>
+        <div class="arch-tier arch-tier-strong mono">
+          <span class="arch-name">Tier 2 — JsBridge</span>
+          <span class="arch-desc" data-i18n="arch.t2">session · policies · handshake</span>
+        </div>
+        <div class="arch-tier mono">
+          <span class="arch-name">Tier 1 — CoreBridge</span>
+          <span class="arch-desc" data-i18n="arch.t1">pure protocol dispatch · handlers · transport</span>
+        </div>
+        <div class="arch-tier arch-tier-base mono">
+          <span class="arch-name">api</span>
+          <span class="arch-desc" data-i18n="arch.t0">BridgeMessage · BridgeError · contracts</span>
+        </div>
+      </div>
+      <p class="section-note" data-i18n="arch.note">Unidirectional dependencies: JsBridge → CoreBridge → api. CoreBridge has zero security dependencies; security has zero core dependencies.</p>
+    </section>
+
+    <section class="section section-alt">
+      <h2 class="section-title" data-i18n="platforms.title">Four platforms, one contract</h2>
+      <div class="grid grid-4">
+        <article class="card card-platform">
+          <h3>Android</h3>
+          <p class="mono small">Java 8 · gradle</p>
+          <p data-i18n="platforms.android">Reference implementation. js-bridge-core + WebView transport adapter.</p>
+          <a class="card-link" href="https://github.com/xesam/JSBridge2/tree/master/js_bridge_android" target="_blank" rel="noopener" data-i18n="platforms.link">Read integration guide →</a>
+        </article>
+        <article class="card card-platform">
+          <h3>iOS</h3>
+          <p class="mono small">Swift 6 · SPM</p>
+          <p data-i18n="platforms.ios">Swift Package with Bridge core plus a WKWebView transport in BridgeSystem.</p>
+          <a class="card-link" href="https://github.com/xesam/JSBridge2/tree/master/js_bridge_ios" target="_blank" rel="noopener" data-i18n="platforms.link">Read integration guide →</a>
+        </article>
+        <article class="card card-platform">
+          <h3>Flutter</h3>
+          <p class="mono small">Dart 3 · pub</p>
+          <p data-i18n="platforms.flutter">Core package plus host-app example. Transport injected via bindTransport().</p>
+          <a class="card-link" href="https://github.com/xesam/JSBridge2/tree/master/js_bridge_flutter" target="_blank" rel="noopener" data-i18n="platforms.link">Read integration guide →</a>
+        </article>
+        <article class="card card-platform">
+          <h3>HarmonyOS</h3>
+          <p class="mono small">ArkTS · HAR</p>
+          <p data-i18n="platforms.harmony">Stage-model HAR core with the same envelope, handshake and policy chain.</p>
+          <a class="card-link" href="https://github.com/xesam/JSBridge2/tree/master/js_bridge_harmony" target="_blank" rel="noopener" data-i18n="platforms.link">Read integration guide →</a>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title" data-i18n="quickstart.title">Quick start</h2>
+      <div class="quickstart">
+        <div class="code-block mono">
+          <span class="code-comment" data-i18n="quickstart.comment">Build the JS SDK and sync it to all four platforms first</span>
+          git clone https://github.com/xesam/JsBridge2.git
+          cd JsBridge2
+          cd web-assets && pnpm install && pnpm sync && cd ..
+        </div>
+        <div class="code-block mono">
+          <span class="code-comment" data-i18n="quickstart.comment2">Then load the SDK from any WebView page</span>
+&lt;script src="./jsbridge-sdk.js"&gt;&lt;/script&gt;
+const client = createJsBridgeClient({ origin, pageInstanceId })
+        </div>
+      </div>
+      <div class="hero-cta">
+        <a class="btn btn-ghost" href="https://github.com/xesam/JsBridge2#quick-start" target="_blank" rel="noopener" data-i18n="quickstart.more">Full quick start →</a>
+      </div>
+    </section>
+
+    <section class="section section-alt">
+      <h2 class="section-title" data-i18n="docs.title">Documentation</h2>
+      <div class="grid grid-3">
+        <a class="card card-link-wrapper" href="https://github.com/xesam/JSBridge2/blob/master/docs/01-design-principles.md" target="_blank" rel="noopener">
+          <h3 data-i18n="docs.c1">Design principles</h3>
+          <p class="mono small">docs/01-design-principles.md</p>
+        </a>
+        <a class="card card-link-wrapper" href="https://github.com/xesam/JSBridge2/blob/master/docs/03-protocol.md" target="_blank" rel="noopener">
+          <h3 data-i18n="docs.c2">Protocol v1 spec</h3>
+          <p class="mono small">docs/03-protocol.md</p>
+        </a>
+        <a class="card card-link-wrapper" href="https://github.com/xesam/JSBridge2/blob/master/docs/05-lifecycle-layers.md" target="_blank" rel="noopener">
+          <h3 data-i18n="docs.c3">Lifecycle layers</h3>
+          <p class="mono small">docs/05-lifecycle-layers.md</p>
+        </a>
+        <a class="card card-link-wrapper" href="https://github.com/xesam/JSBridge2/blob/master/docs/06-channel-establishment.md" target="_blank" rel="noopener">
+          <h3 data-i18n="docs.c4">Channel establishment</h3>
+          <p class="mono small">docs/06-channel-establishment.md</p>
+        </a>
+        <a class="card card-link-wrapper" href="https://github.com/xesam/JSBridge2/blob/master/docs/07-transport-bridge-design.md" target="_blank" rel="noopener">
+          <h3 data-i18n="docs.c5">Transport loop design</h3>
+          <p class="mono small">docs/07-transport-bridge-design.md</p>
+        </a>
+        <a class="card card-link-wrapper" href="https://github.com/xesam/JSBridge2/blob/master/docs/09-conformance.md" target="_blank" rel="noopener">
+          <h3 data-i18n="docs.c6">Conformance (C01–C66)</h3>
+          <p class="mono small">docs/09-conformance.md</p>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p class="mono small">
+      <a href="https://github.com/xesam/JsBridge2" target="_blank" rel="noopener">xesam/JsBridge2</a>
+      <span class="dot">·</span>
+      <span>MIT License</span>
+      <span class="dot">·</span>
+      <span data-i18n="footer.slogan">One protocol. Four platforms.</span>
+    </p>
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>
