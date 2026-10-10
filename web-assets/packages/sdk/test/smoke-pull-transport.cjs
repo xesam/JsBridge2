@@ -30,8 +30,7 @@ function assert(cond, msg) {
     console.log('  ok -', msg)
 }
 
-const waits = []
-const wait = ms => new Promise(r => waits.push(setTimeout(r, ms)))
+const wait = ms => new Promise(r => setTimeout(r, ms))
 
 function deliver(reqId, withPort) {
     const port = withPort

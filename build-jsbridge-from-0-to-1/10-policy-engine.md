@@ -30,7 +30,7 @@ new SecurityConfig()      // 握手 + session 校验；两个白名单维度显�
     .methodWhitelist(...)
 ```
 
-传入 `SecurityConfig` 时构造期强制 `allowedOrigins`（精确匹配，无前缀通配）与 `methodWhitelist` 显式配置——防呆约束：任一字段为 `null` 时构造函数直接抛 `IllegalArgumentException`，逼宿主做出真实配置；`{"*"}` 是合法的"不限制该维度"显式声明（对应策略节点不进链）。`sessionTtlMs`（默认 15 分钟）有内置默认值，不强制显式配置。
+传入 `SecurityConfig` 时构造期强制 `allowedOrigins`（精确匹配，无前缀通配）与 `methodWhitelist` 显式配置——防呆约束：任一字段为 `null` 时构造函数直接抛 `IllegalArgumentException`，逼宿主做出真实配置；`{"*"}` 是合法的"不限制该维度"显式声明（对应策略节点不进链）。`sessionTtlMs`（默认 24 小时）有内置默认值，不强制显式配置——会话时效敏感的宿主应显式收紧。
 
 ## 扩展策略接口
 ```java

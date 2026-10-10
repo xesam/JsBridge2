@@ -112,5 +112,28 @@ function handshakeResponse(reqId, payload) {
         'client 是门控 JsBridgeClient、transport 是 NativeTransport')
     assert(SDK.getBridge() === readyP, '单例：后续 getBridge() 复用同一 ready 信号')
 
+    console.log('阶段④: registerEventHandler 预中止 signal → 不注册、handler 不滞留')
+    // WHATWG 语义下预中止 signal 不再派发 abort 事件——callNativeApi 有预检（C27），
+    // 事件注册路径同样不得把 handler 留成永久注册
+    const ac = new AbortController()
+    ac.abort()
+    const rawClient = new SDK.CoreBridgeClient({ send() {} })
+    let eventCount = 0
+    rawClient.registerEventHandler('runtime.state', () => { eventCount += 1 }, ac.signal)
+    rawClient.handleIncomingMessage(JSON.stringify({
+        id: 'evt-1', sessionId: '', kind: 'event', method: 'runtime.state',
+        ts: 0, timeoutMs: 0, keep: false, payload: { state: 'resumed' },
+        reqId: null, done: null, ok: null, error: null,
+    }))
+    assert(eventCount === 0, '预中止 signal 下注册不生效（handler 未残留）')
+    // 对照组：不带 signal 的注册正常派发，证明不派发来自预中止分支而非整体失活
+    rawClient.registerEventHandler('runtime.state', () => { eventCount += 1 })
+    rawClient.handleIncomingMessage(JSON.stringify({
+        id: 'evt-2', sessionId: '', kind: 'event', method: 'runtime.state',
+        ts: 0, timeoutMs: 0, keep: false, payload: { state: 'paused' },
+        reqId: null, done: null, ok: null, error: null,
+    }))
+    assert(eventCount === 1, '不带 signal 的注册正常派发')
+
     console.log('\n全部通过，断言数:', assertCount)
 })().catch(e => { console.error(e); process.exit(1) })

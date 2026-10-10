@@ -532,8 +532,9 @@ async function run() {
                 close() { port.closed = true; }
             };
             deliveredPorts.push(port);
-            // 缺省 source = sandbox realm 的 window（与真实 Native 投递一致）；
-            // 传入 forgedSource 模拟跨域 iframe 构造的伪造事件（C59 代码侧）
+            // 缺省 source = sandbox realm 的 window（window.postMessage 形态投递，C40）；
+            // 传入 forgedSource 模拟 C59 的两种非缺省形态：跨域 iframe 构造的伪造事件
+            //（对象引用，须拒绝）与 Android postWebMessage 的真实投递（null，须采纳）
             const ev = sandbox.__makeChannelEvent(reqId, port, forgedSource);
             for (const fn of eventListeners.message) { fn(ev); }
             return port;
@@ -552,8 +553,14 @@ async function run() {
         const noReqId = deliver("");
         assert.strictEqual(noReqId.closed, true, "C40 delivery without reqId must be dropped and port closed");
 
-        const adopted = deliver(firstReqId);
-        assert.notStrictEqual(adopted.closed, true, "C40 matching reqId delivery must be adopted");
+        // C59 代码侧附加（Android `postWebMessage` 形态，并入 C40/C41 不新编号）：
+        // Android WebView 经 `WebView.postWebMessage` 投递的 MessageEvent 的 `source`
+        // **恒为 null**（该投递不是 `window.postMessage` 形态，没有发送方 window），
+        // 真机上这是唯一合法投递形态——`source === null` 必须与 `source === window`
+        // 同样被采纳（此前只覆盖 source === window，Android 上合法投递被来源校验整体
+        // 拒掉，端口只关不采纳 → 重试耗尽 → E_CHANNEL_CLOSED，见 docs/06 §2.2）。
+        const adopted = deliver(firstReqId, null);
+        assert.notStrictEqual(adopted.closed, true, "C40/C59 native postWebMessage delivery (source === null) must be adopted");
 
         const duplicate = deliver(firstReqId);
         assert.strictEqual(duplicate.closed, true, "C40 duplicate reqId delivery must be idempotently ignored and closed");

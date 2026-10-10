@@ -47,7 +47,7 @@ public final class JsBridge {
     private static final int MAX_READY_LISTENERS = 32;
 
     public static final class SecurityConfig {
-        public static final long DEFAULT_SESSION_TTL_MS = 15 * 60 * 1000L;
+        public static final long DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1000L;
         public static final String DEFAULT_POLICY_VERSION = "v1";
 
         // {"*"} = 显式不限制，节点不进策略链；具体值集合 = 启用白名单校验

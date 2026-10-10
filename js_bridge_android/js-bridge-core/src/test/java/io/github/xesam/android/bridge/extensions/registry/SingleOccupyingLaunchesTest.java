@@ -9,6 +9,8 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 public class SingleOccupyingLaunchesTest {
@@ -25,7 +27,7 @@ public class SingleOccupyingLaunchesTest {
         SingleOccupyingLaunches.PendingLaunch pendingLaunch = launches.consume();
         assertNotNull(pendingLaunch);
         assertEquals(launchId, pendingLaunch.launchId);
-        assertTrue(pendingLaunch.callback == callback);
+        assertSame(callback, pendingLaunch.callback);
     }
 
     @Test
@@ -51,7 +53,7 @@ public class SingleOccupyingLaunchesTest {
 
         launches.clear();
 
-        assertTrue(launches.consume() == null);
+        assertNull(launches.consume());
     }
 
     @Test

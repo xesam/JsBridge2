@@ -11,9 +11,13 @@ void main() {
     // ===== C45: 策略链固定求值顺序与短路行为 =====
 
     test('C45_policyChain_evaluatesInFixedOrder_requestShapeFirst', () {
-      // 第一层 RequestShapePolicy 拒绝 -> 短路，后续策略不执行
+      // C45 登记形态（docs/09）：构造 PolicyEngine，按规范顺序注入策略。
+      // 输入同时触发 RequestShape（kind=event）与 HandshakeGate（未握手 + 非握手方法）
+      // 两个拒绝条件，断言返回最早拒绝者 E_INVALID_MESSAGE——若实现把
+      // RequestShapePolicy 挪到链尾，错误码会变成 E_NOT_READY 使本用例失败。
       final PolicyEngine engine = PolicyEngine(<PolicyRule>[
         const RequestShapePolicy(),
+        const HandshakeGatePolicy(),
       ]);
 
       final BridgeError? err = engine.evaluate(

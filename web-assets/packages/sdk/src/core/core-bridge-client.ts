@@ -96,6 +96,11 @@ export class CoreBridgeClient {
         if (typeof handler !== 'function') {
             throw new Error('event handler must be function')
         }
+        // 预中止的 signal 不再派发 abort 事件（WHATWG 语义），挂监听永远不触发；
+        // 与 callNativeApi 的预检对称：直接不注册，避免 handler 永久滞留
+        if (signal?.aborted) {
+            return
+        }
         this.#eventHandlers.set(method, handler)
         if (signal) {
             const onAbort = (): void => {

@@ -226,7 +226,7 @@ graph LR
 
 **入口调用的平台约束（实锤案例，任何重实现 JS 侧消费方必须遵守）**：Android 注入对象的包装层校验方法调用的 this 绑定——**必须以方法调用形式在注入对象上调用（`window.__jsbridge2__.requestBridgeChannel(opts)`），不得解构引用后调用（`const f = obj.requestBridgeChannel; f(opts)`）**，后者抛 `Java bridge method can't be invoked on a non-injected object`，且该异常在 JS 侧可能被消费方的 try/catch 静默吞掉、表象退化为信道超时（真机验证过的失败模式）。
 
-**宿主 bind 时序与首个请求的暂存补投**：哑入口随 transport 构造注入（早于 loadUrl），`pendingListener` 要到首次 `bind()`（宿主 `resetTransport()`，通常在 onPageFinished）才存在——bind 前到达的通道请求由 `PendingChannelRequests` **暂存**（容量 64、超限丢最旧、重复 reqId 幂等、随 epoch 轮换清空），`bind()` 时按 latest-wins 补投给 listener（仅补投最新 reqId，被取代的旧请求不补投）建立通道，首个请求无需等待 T+退避重试（真机验证：首轮握手 ~67ms 达成；验收锚点 C47）。
+**宿主 bind 时序与首个请求的暂存补投**：哑入口随 transport 构造注入（早于 loadUrl），`pendingListener` 要到首次 `bind()`（宿主 `resetTransport()`，通常在 onPageFinished）才存在——bind 前到达的通道请求由 `PendingChannelRequests` **暂存**（容量 64、超限丢最旧、重复 reqId 幂等）；每次现代路径的 `bind()`（API<M 的 legacy 路径除外）递增 epoch、按 latest-wins 补投给 listener（仅补投最新 reqId，被取代的旧请求不补投；同刻排空暂存队列，epoch 与当前不符的陈旧补投在投递时丢弃，详见 [06-channel-establishment.md §5.3](06-channel-establishment.md)），建立通道，首个请求无需等待 T+退避重试（真机验证：首轮握手 ~67ms 达成；验收锚点 C47）。
 
 **同步 ack 的平台分层**：
 
@@ -296,12 +296,12 @@ graph LR
 
 #### 握手语义
 
-握手方法名固定为 `bridge.handshake`，成功响应 payload 必须包含以下**五个字段**（字段集合为契约，数值为示例——`sessionTtlMs` 具体取值由宿主决定，如 demo 默认 15 分钟）：
+握手方法名固定为 `bridge.handshake`，成功响应 payload 必须包含以下**五个字段**（字段集合为契约，数值为示例——`sessionTtlMs` 具体取值由宿主决定，如 demo 默认 24 小时）：
 
 ```json
 {
   "sessionId": "...",
-  "sessionTtlMs": 900000,
+  "sessionTtlMs": 86400000,
   "policyVersion": "v1",
   "origin": "file://",
   "accepted": true
@@ -615,7 +615,7 @@ const PLATFORM_ROOTS = {
 | 错误码基线变更 | 新增基线错误码 | 影响 JS 侧错误处理与 conformance 用例 |
 | 流式语义变更 | 修改 `keep`/`done` 约定 | 影响 Async handler 实现 |
 | WebAssets 任意文件变更 | 修改 `packages/sdk/src/` | 必须同步到四端 assets 目录 |
-| conformance 用例新增/修改 | 新增下一个编号（编号规则：取登记表最大 +1，见 [09-conformance.md §6.2](09-conformance.md)；编号已用至 C65（C09 / C44 为显式保留空缺，不登记、不得复用），不得复用旧编号） | 四端均需新增对应测试 |
+| conformance 用例新增/修改 | 新增下一个编号（编号规则：取登记表最大 +1，见 [09-conformance.md §6.2](09-conformance.md)；编号已用至 C66（C09 / C44 为显式保留空缺，不登记、不得复用），不得复用旧编号） | 四端均需新增对应测试 |
 
 **操作流程**：先更新 `docs/` 下对应文档（`03-protocol.md` 或 `02-architecture.md`），再同步更新四端实现 + WebAssets，最后验证 `cd web-assets && pnpm sync` 和所有 conformance 测试通过。
 

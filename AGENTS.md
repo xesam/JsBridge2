@@ -174,7 +174,7 @@ cd web-assets && pnpm check   # 仅校验（不构建）— SHA-256 比对四端
 
 ## Conformance
 
-C01–C65 用例验证跨端行为（含 C04b，为 C04 的补充用例；C09/C44 为登记空缺，不复用）。Native-core 用例（C01–C13 含 C04b, C17, C18, C28–C30, C33–C38, C43, C48, C49, C51–C56, C60, C61, C62, C64, C65）位于各平台的 `ConformanceCoreBaseline*` 测试中——例外：Android 的 C43 由 `UnifiedHandlerApiTest` 承载，C47 由 `PendingChannelRequestsTest` 承载且仅 Android 存在此形态（已登记缺口，详见 `docs/09-conformance.md §4`）；C45/C46（策略链求值）由各端独立的策略链测试承载——Android `PolicyGroupsTest`、iOS `PolicyChainTests`、Flutter `policy_chain_test.dart`、HarmonyOS `PolicyGroupsTest.test.ets`；JS-client 用例（C14–C16, C19–C27, C31, C32, C39, C40, C41, C50, C57, C63）位于共享的 `bridge-client-conformance.cases.js` 中；C42（宿主 invalidate 桩断言）与 C58/C59（建链安全边界：iOS 主 frame 隔离、JS MessagePort 采纳来源校验）属 instrumented 层，宿主 instrumented 套件尚未建设，属已登记缺口（代码侧逻辑已存在；详见 `docs/09-conformance.md §4`）。用例编号的登记正本以 `docs/09-conformance.md` 为准。所有用例必须在每个平台全部通过。修改 bridge 契约（策略、消息路由、session 行为、信道建立）或新增用例时，须同步更新四端。
+C01–C66 用例验证跨端行为（含 C04b，为 C04 的补充用例；C09/C44 为登记空缺，不复用）。Native-core 用例（C01–C13 含 C04b, C17, C18, C28–C30, C33–C38, C43, C48, C49, C51–C56, C60, C61, C62, C64, C65, C66）位于各平台的 `ConformanceCoreBaseline*` 测试中——例外：Android 的 C43 由 `UnifiedHandlerApiTest` 承载，C47 由 `PendingChannelRequestsTest` 承载且仅 Android 存在此形态（已登记缺口，详见 `docs/09-conformance.md §4`）；C45/C46（策略链求值）由各端独立的策略链测试承载——Android `PolicyGroupsTest`、iOS `PolicyChainTests`、Flutter `policy_chain_test.dart`、HarmonyOS `PolicyGroupsTest.test.ets`；JS-client 用例（C14–C16, C19–C27, C31, C32, C39, C40, C41, C50, C57, C63）位于共享的 `bridge-client-conformance.cases.js` 中；C42（宿主 invalidate 桩断言）与 C58/C59（建链安全边界：iOS 主 frame 隔离、JS MessagePort 采纳来源校验）属 instrumented 层，宿主 instrumented 套件尚未建设，属已登记缺口（代码侧逻辑已存在；详见 `docs/09-conformance.md §4`）。用例编号的登记正本以 `docs/09-conformance.md` 为准。所有用例必须在每个平台全部通过。修改 bridge 契约（策略、消息路由、session 行为、信道建立）或新增用例时，须同步更新四端。
 
 编号一致性由 `scripts/check_conformance_ids.sh` 程序化校验（已接入 `test_all.sh`）：检测未登记编号、四端编号漂移、登记未实现、docs/09 自称最大编号与登记表不一致、四端 JS client 副本编号漂移五类问题。合法例外（instrumented 层、已登记缺口）在该脚本中显式列出并与 `docs/09-conformance.md §4` 保持同步。
 
@@ -213,7 +213,7 @@ scope 按模块：
 | `06-channel-establishment.md` | 信道建立 pull 模型与 reqId 往返 |
 | `07-transport-bridge-design.md` | Transport 入站闭环设计（bindTransport / WKWebViewBridgeTransport） |
 | `08-handler-interface-contract.md` | CoreBridge 接口契约规范 |
-| `09-conformance.md` | Conformance 用例说明（C01–C65） |
+| `09-conformance.md` | Conformance 用例说明（C01–C66） |
 
 各端集成指南位于各平台项目 README 中：`js_bridge_android/README.md`、`js_bridge_ios/README.md`、`js_bridge_flutter/README.md`、`js_bridge_harmony/README.md`。
 

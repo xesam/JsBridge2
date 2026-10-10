@@ -26,7 +26,7 @@ abstract class PageContextProvider {
 ///   - SecurityConfig 对象存在时两者必填（null 在构造期抛出 ArgumentError）
 /// [methodWhitelist] 语义详见 [BridgeApiContract.protocolMethods] 文档。
 class SecurityConfig {
-  static const int defaultSessionTtlMs = 15 * 60 * 1000;
+  static const int defaultSessionTtlMs = 24 * 60 * 60 * 1000;
   static const String defaultPolicyVersion = 'v1';
 
   SecurityConfig({

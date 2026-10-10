@@ -49,5 +49,5 @@
 
 ## 常见坑
 1. 会话不绑定 `pageInstanceId`，跨页面串用。
-2. 忘记 TTL，session 永不过期（默认 `sessionTtlMs` 为 15 分钟）。
+2. 忘记 TTL，session 永不过期（默认 `sessionTtlMs` 为 24 小时）。
 3. 把 `resetPageInstance` 用在 SPA 路由跳转上，导致会话被误杀。

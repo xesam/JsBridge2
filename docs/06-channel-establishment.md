@@ -91,7 +91,14 @@ const ackJson = window.__jsbridge2__.requestBridgeChannel(JSON.stringify({ reqId
 // MessageEvent.ports[0] 携带 MessagePort
 ```
 
-**投递信任边界（C59）**：`bridge:channel` 投递只能来自 Native 经由主 frame 的注入通道——JS 侧采纳端口前**必须**校验 MessageEvent 的来源：`event.source === window`（投递源只能是主 frame 自身），跨域 iframe 构造的同形事件（`source` 为 iframe 的 window）一律拒绝：关闭其携带的端口、不采纳、当前请求路径不受影响。reqId 是配对凭证而非信任凭证——reqId 可能经 `console` 等途径泄露，**绝不**单独作为采纳依据。Native 侧对应约束见 [03-protocol.md §9 细则 5](03-protocol.md)（iOS 主 frame 校验 / Android 端口仅投递主 frame JS 环境）。
+**投递信任边界（C59）**：`bridge:channel` 投递只能来自 Native 经由主 frame 的注入通道——JS 侧采纳端口前**必须**校验 MessageEvent 的来源，仅两种形态合法：
+
+| `event.source` | 投递形态 | 判定 |
+|---|---|---|
+| `window`（主 frame 自身） | `window.postMessage` 型注入 | 采纳 |
+| `null` | native 投递型——Android `WebView.postWebMessage` 投递的 MessageEvent **无发送方 window，`source` 恒为 `null`** | 采纳 |
+
+其余来源（如跨域 iframe 构造的同形事件，`source` 为 iframe 的 window）一律拒绝：关闭其携带的端口、不采纳、当前请求路径不受影响。页面脚本无法伪造上述两种合法形态——`window.postMessage` 的 `source` 恒为发送方 window，iframe 只能产出自身的 window。reqId 是配对凭证而非信任凭证——reqId 可能经 `console` 等途径泄露，**绝不**单独作为采纳依据。Native 侧对应约束见 [03-protocol.md §9 细则 5](03-protocol.md)（iOS 主 frame 校验 / Android 端口仅投递主 frame JS 环境）。
 
 **v1 词汇变更**：从 `bridge:init`（生命周期广播语义）改为 `bridge:channel`（请求-响应语义）。
 

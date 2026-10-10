@@ -40,7 +40,7 @@ final class BindTransportTests: XCTestCase {
         bridge.resetPageInstance()
 
         // handshake 先建立 session
-        let sessionId = handshakeViaTransport(bridge: bridge, mock: mock, origin: "file://")
+        let sessionId = handshakeViaTransport(bridge: bridge, mock: mock)
 
         // 发送 echo 请求
         let echoJson = requestJson(
@@ -94,7 +94,7 @@ final class BindTransportTests: XCTestCase {
         bridge.registerAsyncHandler(method: "multi", handler: asyncHandler)
         bridge.bindTransport()
         bridge.resetPageInstance()
-        let sessionId = handshakeViaTransport(bridge: bridge, mock: mock, origin: "file://")
+        let sessionId = handshakeViaTransport(bridge: bridge, mock: mock)
 
         let multiJson = requestJson(
             id: "m1",
@@ -117,13 +117,13 @@ final class BindTransportTests: XCTestCase {
         }
     }
 
-    func test_bindTransport_idempotent_repeatedCallUpdatesCallback() {
+    func test_bindTransport_idempotent_rebindKeepsPipelineWorking() {
         let mock = FakeBridgeTransport()
         let bridge = makeBridge(transport: mock)
         bridge.bindTransport()
         bridge.resetPageInstance()
 
-        // 再次调用 bindTransport（幂等）
+        // 再次调用 bindTransport（幂等，换上新的入站回调引用）
         bridge.bindTransport()
 
         // 仍然能正常处理消息
@@ -152,7 +152,7 @@ final class BindTransportTests: XCTestCase {
         )
     }
 
-    private func handshakeViaTransport(bridge: JsBridge, mock: FakeBridgeTransport, origin: String) -> String {
+    private func handshakeViaTransport(bridge: JsBridge, mock: FakeBridgeTransport) -> String {
         let handshakeJson = requestJson(
             id: "h1",
             method: BridgeApiContract.methodHandshake,

@@ -37,7 +37,7 @@
 
 ### 3. 验证与测试
 
-- **[09-conformance.md](09-conformance.md)** — 一致性验收用例（C01–C65；编号登记正本见其 §3，C09/C44 为登记空缺）
+- **[09-conformance.md](09-conformance.md)** — 一致性验收用例（C01–C66；编号登记正本见其 §3，C09/C44 为登记空缺）
 - [origin-normalizer-vectors.json](origin-normalizer-vectors.json) — origin 归一化校验向量正本（C54，由 `scripts/check_origin_vectors.sh` 强制四端一致）
 
 ---

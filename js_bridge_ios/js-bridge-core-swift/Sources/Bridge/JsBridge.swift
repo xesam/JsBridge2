@@ -7,7 +7,7 @@ public final class JsBridge {
     private static let maxReadyListeners = 32
 
     public struct SecurityConfig {
-        public static let defaultSessionTtlMs: Int64 = 15 * 60 * 1000
+        public static let defaultSessionTtlMs: Int64 = 24 * 60 * 60 * 1000
         public static let defaultPolicyVersion = "v1"
 
         // ["*"] = 显式不限制，对应节点不进策略链；具体值 = 启用白名单校验；

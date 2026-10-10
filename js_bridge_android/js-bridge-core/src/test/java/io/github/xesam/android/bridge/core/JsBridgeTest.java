@@ -49,8 +49,6 @@ public class JsBridgeTest {
         bridge.registerSimpleHandler("echo", (ctx, payload) -> payload);
         bridge.resetPageInstance();
 
-        bridge.addReadyListener(() -> {
-        });
         String sessionId = handshakeSessionId(transport);
 
         transport.deliver(requestJson("r2", "echo", sessionId, "{\"ok\":1}"));
@@ -206,11 +204,11 @@ public class JsBridgeTest {
     }
 
     /**
-     * {"*"} 是合法的显式"不限制该维度"声明：构造不抛异常，对应策略节点不进链。
+     * {"*"} 是合法的显式"不限制该维度"声明：构造不抛异常。
      * 装配后的放行行为由 ConformanceCoreBaselineTest 的 c65 断言（行为级）。
      */
     @Test
-    public void secure_withWildcardSets_allowed() {
+    public void secure_withWildcardSets_constructsWithoutThrowing() {
         FakeBridgeTransport transport = new FakeBridgeTransport();
         PageContextProvider contextProvider = (bridgeMessage, pageInstanceId) -> new TrustedPageContext("file://", pageInstanceId);
         JsBridge.SecurityConfig config = new JsBridge.SecurityConfig()

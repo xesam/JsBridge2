@@ -64,8 +64,9 @@ public class ConformanceCoreBaselineTest {
         assertTrue(response.optBoolean("ok"));
         assertNotNull(payload);
         assertTrue(payload.optString("sessionId").length() > 0);
-        assertTrue(payload.has("sessionTtlMs"));
-        assertTrue(payload.has("policyVersion"));
+        // 值与类型断言（而非仅 has()）：TTL 为四端默认毫秒值，policyVersion 默认 "v1"
+        assertEquals(86400000L, payload.optLong("sessionTtlMs", -1L));
+        assertEquals("v1", payload.optString("policyVersion"));
         assertEquals("file://", payload.optString("origin"));
         assertTrue(payload.optBoolean("accepted"));
     }
@@ -265,6 +266,8 @@ public class ConformanceCoreBaselineTest {
         fixture.transport.deliver(requestJson("h1", BridgeApiContract.METHOD_HANDSHAKE, "", "{}"));
 
         assertTrue(fixture.bridge.isReady());
+        // 与 JsBridgeTest.sendFailure_* 同断言：send 失败不得产生任何已发送帧
+        assertEquals(0, fixture.transport.sentCount());
         assertFalse(fixture.bridge.postEvent(BridgeApiContract.METHOD_LIFECYCLE, "{}"));
     }
 
@@ -339,7 +342,10 @@ public class ConformanceCoreBaselineTest {
         JSONObject payload = events.get(0);
         assertEquals("resumed", payload.optString("state"));
         assertEquals(1, payload.optInt("seq"));
-        assertEquals(2, payload.length()); // payload 恰为 {state, seq}
+        // payload 键集恰为 {state, seq}：总数 2 且两键俱在（多了别的键会被 length 逮住）
+        assertEquals(2, payload.length());
+        assertTrue(payload.has("state"));
+        assertTrue(payload.has("seq"));
     }
 
     @Test
@@ -360,7 +366,6 @@ public class ConformanceCoreBaselineTest {
         fixture.transport.deliver("{\"id\":\"r1\",\"sessionId\":\"\",\"method\":\"echo\",\"payload\":{}}");
 
         assertNull(fixture.transport.lastSent());
-        assertEquals(0, fixture.transport.sentCount());
     }
 
     @Test
@@ -518,7 +523,6 @@ public class ConformanceCoreBaselineTest {
 
         // 四条畸形消息均无任何响应
         assertEquals(0, transport.sentCount());
-        assertNull(transport.lastSent());
 
         // 后续正常请求不受影响
         transport.deliver(requestJson("r5", "echo", "", "{}"));
@@ -581,6 +585,8 @@ public class ConformanceCoreBaselineTest {
         JSONObject response = parse(fixture.transport.lastSent());
         assertFalse(response.optBoolean("ok"));
         assertEquals("E_POLICY_DENY", errorCode(fixture.transport.lastSent()));
+        // 兜底 error 不止有 code：message 须非空，供 JS 侧观测与日志定位
+        assertTrue(response.optJSONObject("error").optString("message").length() > 0);
     }
 
     @Test
@@ -857,6 +863,21 @@ public class ConformanceCoreBaselineTest {
         contextProvider.setOrigin("https://other.example");
         fixture.transport.deliver(requestJson("r65b", "not.in.whitelist", sessionId, "{}"));
         assertEquals("E_SESSION_INVALID", errorCode(fixture.transport.lastSent()));
+    }
+
+    @Test
+    public void c66_defaultSessionTtl_24Hours_lockedAcrossPlatforms() {
+        // C66：docs/09 —— session 默认 TTL 四端一致性锁定（此前无任何用例断言默认值，
+        // 四端漂移无 gate 可拦）。默认 24h 为体验兜底而非法定期限（docs/03 §3.5），
+        // 时效敏感宿主应显式收紧 sessionTtlMs。
+        assertEquals(24 * 60 * 60 * 1000L, JsBridge.SecurityConfig.DEFAULT_SESSION_TTL_MS);
+
+        // 未显式配置 sessionTtlMs 的 SecurityConfig：握手响应反馈默认值
+        Fixture fixture = new Fixture();
+        fixture.bridge.resetPageInstance();
+        fixture.transport.deliver(requestJson("h66", BridgeApiContract.METHOD_HANDSHAKE, "", "{}"));
+        JSONObject payload = parse(fixture.transport.lastSent()).optJSONObject("payload");
+        assertEquals(24 * 60 * 60 * 1000L, payload.optLong("sessionTtlMs"));
     }
 
     /** 等待越过短 TTL（c56 用，TTL=1ms，等待 10ms 保证过期）。 */

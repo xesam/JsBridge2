@@ -36,6 +36,10 @@ export default function conformanceCoreBaselineTest(): void {
 
       expect(response['ok'] as boolean).assertTrue();
       expect((payload['sessionId'] as string).length > 0).assertTrue();
+      // 值断言（而非仅存在性）：TTL 为四端默认毫秒值，policyVersion 默认 "v1"
+      // 与 Android/iOS/Flutter 的 C02 同强度
+      expect(payload['sessionTtlMs'] as number).assertEqual(86400000);
+      expect(payload['policyVersion'] as string).assertEqual('v1');
       expect(payload['origin'] as string).assertEqual('file://');
       expect(payload['accepted'] as boolean).assertTrue();
     });
@@ -224,6 +228,8 @@ export default function conformanceCoreBaselineTest(): void {
       const statePayload: Record<string, Object> = { 'state': 'ready' };
       const sent = await fixture.bridge.postEvent('runtime.state', statePayload);
 
+      // 与 Flutter 同断言两半：send 失败不影响 ready（可观测性）
+      expect(fixture.bridge.isReady()).assertTrue();
       expect(sent).assertFalse();
     });
 
@@ -296,7 +302,8 @@ export default function conformanceCoreBaselineTest(): void {
       expect(events.length).assertEqual(1);
       expect(events[0]['state'] as string).assertEqual('resumed');
       expect(events[0]['seq'] as number).assertEqual(1);
-      expect(Object.keys(events[0]).length).assertEqual(2);
+      // 键集精确断言（而非仅键数）：payload 结构协议固定为 { state, seq }
+      expect(Object.keys(events[0]).sort().join(',')).assertEqual('seq,state');
     });
 
     it('C33_emptyMethod_deniedAsInvalidMessage', 0, async () => {
@@ -687,7 +694,11 @@ export default function conformanceCoreBaselineTest(): void {
         transport: (messageJson: string) => transport.send(messageJson)
       });
       bridge.resetPageInstance(); // 无配置 → 立即 ready
-      await bridge.processIncomingResponses(requestJson('h1', 'bridge.handshake', ''), 'file://'); // 握手建立 session
+      const handshakeResponses = await bridge.processIncomingResponses(requestJson('h1', 'bridge.handshake', ''), 'file://'); // 握手建立 session
+      // 广播断言的前提是非空 session 确实存在（否则"即便存在活跃 session"空转型通过，
+      // 与 Flutter 同断言）
+      const handshakePayload = parse(handshakeResponses[0])['payload'] as Record<string, Object>;
+      expect((handshakePayload['sessionId'] as string).length > 0).assertTrue();
 
       const payload: Record<string, Object> = { 'state': 'custom' };
       const sent = await bridge.postEvent('runtime.state', payload);
@@ -879,6 +890,24 @@ export default function conformanceCoreBaselineTest(): void {
       const denied = parse(deniedRaw);
       expect(denied['ok'] as boolean).assertFalse();
       expect(((denied['error'] as Record<string, Object>)['code']) as string).assertEqual('E_SESSION_INVALID');
+    });
+
+    it('C66_defaultSessionTtl_24Hours_lockedAcrossPlatforms', 0, async () => {
+      // C66：docs/09 —— session 默认 TTL 四端一致性锁定（此前无任何用例断言默认值，
+      // 四端漂移无 gate 可拦）。默认 24h 为体验兜底而非法定期限（docs/03 §3.5），
+      // 时效敏感宿主应显式收紧 sessionTtlMs。
+      const fixture = new Fixture(
+        new Set<string>(['file://']),
+        new Set<string>(['bridge.handshake', 'echo'])
+      );
+      fixture.bridge.resetPageInstance();
+
+      // 未显式配置 sessionTtlMs 的 SecurityConfig：握手响应反馈默认值
+      const handshakeResponse = parse(
+        (await fixture.deliver(requestJson('h66', 'bridge.handshake', ''), 'file://'))[0]
+      );
+      expect((handshakeResponse['payload'] as Record<string, Object>)['sessionTtlMs'] as number)
+        .assertEqual(24 * 60 * 60 * 1000);
     });
 
     // 构造期守门对称断言（与 Android/Flutter/iOS 三端构造校验用例同义，四端义务不携带 C 编号）：

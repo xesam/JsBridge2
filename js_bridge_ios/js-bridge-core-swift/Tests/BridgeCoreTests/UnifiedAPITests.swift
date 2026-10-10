@@ -34,14 +34,15 @@ final class UnifiedAPITests: XCTestCase {
 
     // MARK: - Async Handler Tests
 
-    func testAsyncHandler_immediateReturn() throws {
+    func testAsyncHandler_immediateReturn() async throws {
         let transport = FakeBridgeTransport()
         let bridge = CoreBridge(transport: transport)
         bridge.attachTransport(transport)
 
-        // 使用 AsyncHandler API - 显式类型标注
+        // 使用 AsyncHandler API - dispatch 立即返回；handler 是否启动经 flag 观测
+        let invoked = AwaitableFlag()
         let asyncHandler: AsyncHandler = { _, _, emit in
-            // Handler 不使用 emit，仅用于测试立即返回
+            invoked.setFlag()
         }
         bridge.registerAsyncHandler(method: "test", handler: asyncHandler)
 
@@ -53,9 +54,11 @@ final class UnifiedAPITests: XCTestCase {
             payload: nil
         )
 
-        // dispatch 应该立即返回空数组
+        // dispatch 应该立即返回空数组，并且 handler 已启动（空数组不能来自消息被丢）
         let responses = bridge.dispatch(request: request, context: TrustedPageContext.dummy())
         XCTAssertEqual(responses.count, 0, "Async handler dispatch should return empty array immediately")
+        let handlerRan = await invoked.waitFor(seconds: 1.0)
+        XCTAssertTrue(handlerRan, "Async handler should have been invoked after dispatch")
     }
 
     // MARK: - AsyncHandler transport-level verification
@@ -164,5 +167,33 @@ private extension TrustedPageContext {
             origin: "file://",
             pageInstanceId: "test-page"
         )
+    }
+}
+
+// MARK: - Sendable handler-invocation flag（AsyncHandler 为 @Sendable 闭包）
+
+private final class AwaitableFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var set = false
+
+    func setFlag() {
+        lock.lock()
+        set = true
+        lock.unlock()
+    }
+
+    func isSet() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return set
+    }
+
+    func waitFor(seconds: TimeInterval) async -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if isSet() { return true }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        return isSet()
     }
 }

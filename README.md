@@ -118,12 +118,12 @@ graph TB
 | **Level 1** | + `HandshakeGatePolicy` + `SessionPolicy` | 需要握手与 session 校验，不限来源与方法 |
 | **Level 2** | + `OriginPolicy` + `MethodGatePolicy` | 生产环境：origin 白名单 + 方法白名单 |
 
-**协议统一保证**：同一 JSON 请求在四端产生同语义响应——相同的跨端错误码（`E_POLICY_DENY` / `E_NOT_READY` / `E_METHOD_NOT_FOUND` / `E_SESSION_INVALID` 等）、相同的握手响应结构、相同的会话生命周期语义，由 C01–C65 conformance 用例覆盖（`E_CHANNEL_CLOSED` 等建链错误由 JS 客户端本地产生、不跨端传输，见 [docs/03-protocol.md §8](docs/03-protocol.md)）；信道建立为 pull 模型（详见 [docs/06-channel-establishment.md](docs/06-channel-establishment.md)）。
+**协议统一保证**：同一 JSON 请求在四端产生同语义响应——相同的跨端错误码（`E_POLICY_DENY` / `E_NOT_READY` / `E_METHOD_NOT_FOUND` / `E_SESSION_INVALID` 等）、相同的握手响应结构、相同的会话生命周期语义，由 C01–C66 conformance 用例覆盖（`E_CHANNEL_CLOSED` 等建链错误由 JS 客户端本地产生、不跨端传输，见 [docs/03-protocol.md §8](docs/03-protocol.md)）；信道建立为 pull 模型（详见 [docs/06-channel-establishment.md](docs/06-channel-establishment.md)）。
 
 ## 运行测试
 
 ```bash
-scripts/test_all.sh            # 四端 + WebAssets + JS conformance 一键验证
+scripts/test_all.sh            # 四端 + WebAssets + JS conformance + 编号/origin 向量校验一键验证
                                 # （无 DevEco SDK / pnpm 时自动跳过对应项，退出码 125 = SKIP）
 
 # 单独运行：
@@ -154,7 +154,7 @@ node js_bridge_android/js-bridge-example/src/test/js/bridge-client-conformance.c
 | [06-channel-establishment.md](docs/06-channel-establishment.md) | 信道建立 pull 模型与 reqId 往返 |
 | [07-transport-bridge-design.md](docs/07-transport-bridge-design.md) | Transport 入站闭环设计（`bindTransport()` / `WKWebViewBridgeTransport`） |
 | [08-handler-interface-contract.md](docs/08-handler-interface-contract.md) | Handler 接口契约（Simple/Async，四端实现规范） |
-| [09-conformance.md](docs/09-conformance.md) | 一致性验收用例（C01–C65） |
+| [09-conformance.md](docs/09-conformance.md) | 一致性验收用例（C01–C66） |
 
 ### 社区与项目治理
 

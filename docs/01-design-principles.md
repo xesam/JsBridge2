@@ -320,7 +320,7 @@ const { client } = await getBridge();  // client = 已握手的 JsBridgeClient
 | 原则 | 覆盖用例 |
 |------|---------|
 | 渐进增强 | C23（JS 客户端裸用 null 配置无需握手）、C28–C30（lifecycle 语义对齐） |
-| 行为一致 | 全员已登记用例（C01–C65，编号正本见 [09-conformance.md §3](09-conformance.md)）四端等价 |
+| 行为一致 | 全员已登记用例（C01–C66，编号正本见 [09-conformance.md §3](09-conformance.md)）四端等价 |
 | 平台无关 | 四端 core 导入审计（§3.1） |
 | 分层清晰 | C64（Tier-1 standalone：绕过 security/extensions 的内核分发形态） |
 | Page 解耦 | C24–C27（AbortSignal scope 管理） |

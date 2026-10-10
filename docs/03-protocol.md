@@ -332,7 +332,7 @@ JS 端构造如下消息发起握手：
   "done": true,
   "payload": {
     "sessionId": "<签发的 session ID>",
-    "sessionTtlMs": 900000,
+    "sessionTtlMs": 86400000,
     "policyVersion": "v1",
     "origin": "https://example.com",
     "accepted": true
@@ -345,7 +345,7 @@ JS 端构造如下消息发起握手：
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `sessionId` | string | 签发的会话 ID，后续请求必须携带 |
-| `sessionTtlMs` | number | 会话有效时长（毫秒），0 表示永不过期；上例取四端默认值 `900000`（15 分钟），实际取值由宿主配置覆盖 |
+| `sessionTtlMs` | number | 会话有效时长（毫秒），0 表示永不过期；上例取四端默认值 `86400000`（24 小时），实际取值由宿主配置覆盖。默认值为体验兜底而非法定期限——会话时效敏感的宿主（金融、隐私类页面）应显式配置收紧的 `sessionTtlMs` |
 | `policyVersion` | string | 当前策略版本，供 JS 端感知协议能力；四端默认值统一为 `"v1"`，可由宿主覆盖 |
 | `origin` | string | 服务端确认的 origin，JS 端可比对自验证 |
 | `accepted` | boolean | `true` 表示握手被接受，`false` 表示被拒绝（但 ok 仍为 true） |
@@ -592,7 +592,7 @@ sequenceDiagram
    - authority 段取首个 `/`、`?`、`#` 之前；剥离 userinfo（最后一个 `@` 之前）；端口分隔冒号取最后一个 `]` 之后的最后一个 `:`（IPv6 字面量内部冒号不作端口分隔）。
    - 端口段须为纯 ASCII 数字（至多 5 位）且整数值在 1..65535，否则整个 origin → `""`（fail-closed——`http://host:0`、`http://host:99999`、`http://host:+80`、`http://host:`（空端口段）均归一化为 `""`，畸形端口不得回退成可命中的 origin；Java 的 `parseInt` 与 Swift 的 `Int()` 会静默接受 `+80` 等带符号形态，故必须先做纯数字校验）；端口按**整数值**与默认端口比较（`https:443` / `http:80`），命中则省略，非默认端口以整数值保留（`https://host:0443` → `https://host`）。
    - `allowedOrigins` 白名单条目必须已是归一化后的形态（如 `https://example.com`、`file://`、`flutter-asset://`）——OriginPolicy 比较的是归一化串与条目的直接相等，不做二次归一化。
-   - 建链信任边界：origin 白名单只约束 Native 侧入站点——iOS 的 script message 必须校验 `frameInfo.isMainFrame`（仅主 frame 可作为消息来源），Android pull 信道只将 MessagePort 投递至主 frame JS 环境；JS 侧采纳投递端口前必须校验 MessageEvent 的来源（`event.origin` / `event.source`）。宿主接入套件的落点断言见 [09-conformance.md](09-conformance.md) C58/C59。
+   - 建链信任边界：origin 白名单只约束 Native 侧入站点——iOS 的 script message 必须校验 `frameInfo.isMainFrame`（仅主 frame 可作为消息来源），Android pull 信道只将 MessagePort 投递至主 frame JS 环境；JS 侧采纳投递端口前必须校验 MessageEvent 的来源：仅 `event.source === window`（`window.postMessage` 型注入）与 `event.source === null`（native 投递型——Android `WebView.postWebMessage` 无发送方 window）两种形态合法，其余来源（iframe 的 window）一律拒绝并关闭端口。宿主接入套件的落点断言见 [09-conformance.md](09-conformance.md) C58/C59。
 
 ### 策略链求值流程图
 

@@ -13,7 +13,7 @@
 2. **两个具名入口**：handler 注册表面**固定为两个具名方法**——`registerSimpleHandler` 与 `registerAsyncHandler`。四端均**不得**做运行时类型嗅探、参数个数判断或重载匹配；Dart 与 ArkTS 语言上无法重载，具名是两个态唯一能四端同形的表达
 3. **帧语义由态决定**：Simple = 恰好一帧（`done` 恒为 `true`）；**多帧（同步或异步）只能由 Async 表达**。Simple 的结果类型中不含 `done` 字段，违反该约束在类型层面即不可表达
 4. **旁路推送**：异步多响应通过复用 transport 持久通道实现，不改造分发主干
-5. **零兼容包袱**：删除无用户的 API 不提供别名、不保留 `Legacy` 变体（本次清理的前提是预览期零外部用户）。行为由 C01–C65 锚定
+5. **零兼容包袱**：删除无用户的 API 不提供别名、不保留 `Legacy` 变体（本次清理的前提是预览期零外部用户）。行为由 C01–C66 锚定
 
 ### 1.2 与协议的关系
 
@@ -380,7 +380,7 @@ bridge.registerAsyncHandler('timerLog',
 **原因**：
 
 - 触发 Swift 6 并发检查报错（`sending closure risks data race`）
-- 破坏现有 C01–C65 测试的调用假设
+- 破坏现有 C01–C66 测试的调用假设
 - 增加复杂度，无实际收益
 
 ### 5.2 旁路推送实现
@@ -415,7 +415,7 @@ bridge.registerAsyncHandler('timerLog',
 | C43 | Async handler 经 emitter 推送多帧（异步时序） |
 | C49 | 同一 method 重复注册后者覆盖，注册表条目被替换而非并存 |
 
-C01–C65 的完整定义与各端落点见 [09-conformance.md](09-conformance.md) §3 / §4。
+C01–C66 的完整定义与各端落点见 [09-conformance.md](09-conformance.md) §3 / §4。
 
 ## 7 跨端接口设计对比
 

@@ -138,14 +138,21 @@ public class PolicyGroupsTest {
 
     @Test
     public void c45_policyChain_evaluatesInFixedOrder_requestShapeFirst() {
-        // 第一层 RequestShapePolicy 拒绝 -> 短路，后续策略不执行
-        PolicyInput invalidInput = new PolicyInput(
-                eventMessage("timerLog"), // kind=event，不是 request
+        // C45 登记形态（docs/09）：构造 PolicyEngine，按规范顺序注入策略。
+        // 输入同时触发 RequestShape（kind=event）与 HandshakeGate（未握手 + 非握手方法）
+        // 两个拒绝条件，断言返回最早拒绝者 E_INVALID_MESSAGE——若实现把
+        // RequestShapePolicy 挪到链尾，错误码会变成 E_NOT_READY 使本用例失败。
+        java.util.List<PolicyRule> rules = new java.util.ArrayList<>();
+        rules.add(new RequestShapePolicy());
+        rules.add(new HandshakeGatePolicy());
+
+        PolicyEngine engine = new PolicyEngine(rules);
+
+        PolicyDecision decision = engine.evaluate(new PolicyInput(
+                eventMessage("timerLog"),
                 context("file://"),
                 false,
-                null);
-
-        PolicyDecision decision = new RequestShapePolicy().evaluate(invalidInput);
+                null));
 
         assertFalse(decision.isAllowed());
         assertEquals("E_INVALID_MESSAGE", errorCode(decision));

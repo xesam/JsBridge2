@@ -10,6 +10,7 @@ final class BridgeHost: NSObject, UINavigationControllerDelegate, UIImagePickerC
     private let bridge: JsBridge
     private var loadingAlert: UIAlertController?
     private var timerRunning: Bool = false
+    private var timerStreamEmitter: ResponseEmitter?
     private var timerCounter: Int = 0
     private var activeTimer: Timer?
     private var imagePickCompletion: ((Result<String, BridgeError>) -> Void)?
@@ -98,48 +99,66 @@ final class BridgeHost: NSObject, UINavigationControllerDelegate, UIImagePickerC
                 }
 
                 self.timerRunning = true
+                // 持有 start 请求的流 emitter，stop 时向它补发 stopped 终止帧（对齐 Android TimerExt / HarmonyOS）
+                self.timerStreamEmitter = emitter
 
                 // 启动后台 Timer 实现真正的无限 streaming
-                let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
-                    guard let self else {
-                        timer.invalidate()
-                        return
-                    }
+                // timerLog handler 运行在 Swift Concurrency 后台上下文（非主线程），
+                // 而 Timer 必须挂在持续运行的 RunLoop 上才会触发，因此切到主线程调度。
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    guard self.timerRunning else { return }
+                    let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
+                        guard let self else {
+                            timer.invalidate()
+                            return
+                        }
 
-                    if !self.timerRunning {
-                        timer.invalidate()
+                        if !self.timerRunning {
+                            timer.invalidate()
+                            self.activeTimer = nil
+                            return
+                        }
+
+                        self.timerCounter += 1
+                        let counter = self.timerCounter
                         Task {
                             await emitter(.success(.object([
-                                "event": .string("stopped"),
-                                "running": .bool(false)
-                            ])), true)
+                                "event": .string("tick"),
+                                "value": .number(Double(Int.random(in: 0..<100))),
+                                "seq": .number(Double(counter)),
+                                "running": .bool(true)
+                            ])), false)
                         }
-                        return
                     }
 
-                    self.timerCounter += 1
-                    Task {
-                        await emitter(.success(.object([
-                            "event": .string("tick"),
-                            "value": .number(Double(Int.random(in: 0..<100))),
-                            "seq": .number(Double(self.timerCounter)),
-                            "running": .bool(true)
-                        ])), false)
-                    }
+                    // 保存 timer 引用以便后续可以停止
+                    self.activeTimer = timer
                 }
-
-                // 保存 timer 引用以便后续可以停止
-                self.activeTimer = timer
-                RunLoop.current.add(timer, forMode: .common)
-
                 return
             }
 
             if action == "stop" {
+                guard self.timerRunning else {
+                    await emitter(.success(.object([
+                        "event": .string("stopped"),
+                        "running": .bool(false)
+                    ])), true)
+                    return
+                }
+
                 self.timerRunning = false
                 self.activeTimer?.invalidate()
                 self.activeTimer = nil
+                let previousStreamEmitter = self.timerStreamEmitter
+                self.timerStreamEmitter = nil
 
+                if let previousStreamEmitter {
+                    await previousStreamEmitter(.success(.object([
+                        "event": .string("stopped"),
+                        "running": .bool(false)
+                    ])), true)
+                }
                 await emitter(.success(.object([
                     "event": .string("stopped"),
                     "running": .bool(false)

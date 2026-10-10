@@ -27,7 +27,8 @@ final class ConformanceCoreBaselineTests: XCTestCase {
 
         XCTAssertEqual(json?["ok"] as? Bool, true)
         XCTAssertNotNil(payload?["sessionId"] as? String)
-        XCTAssertNotNil(payload?["sessionTtlMs"])
+        // 值与类型断言（而非仅非空）：TTL 为四端默认毫秒值
+        XCTAssertEqual(payload?["sessionTtlMs"] as? Int64, 86_400_000)
         XCTAssertEqual(payload?["policyVersion"] as? String, "v1")
         XCTAssertEqual(payload?["origin"] as? String, "file://")
         XCTAssertEqual(payload?["accepted"] as? Bool, true)
@@ -124,10 +125,6 @@ final class ConformanceCoreBaselineTests: XCTestCase {
         bridge.resetPageInstance()
         let sessionId = handshake(bridge: bridge, origin: "file://")
 
-        _ = bridge.processIncoming(
-            messageJson: requestJson(id: "r8", method: "echo", sessionId: sessionId, payload: ["k": "v"]),
-            origin: "file://"
-        )
         let mismatchResponse = bridge.processIncomingResponses(
             messageJson: requestJson(id: "r8b", method: "echo", sessionId: sessionId, payload: ["k": "v"]),
             context: TrustedPageContext(origin: "file://", pageInstanceId: "other-page")
@@ -515,6 +512,11 @@ final class ConformanceCoreBaselineTests: XCTestCase {
         )
         let json = object(from: response)
         XCTAssertEqual(json?["ok"] as? Bool, true)
+        // 缺省值经响应回显可观测：sessionId 默认 ""、timeoutMs 默认 0、keep 默认 false
+        XCTAssertEqual(json?["reqId"] as? String, "r38")
+        XCTAssertEqual(json?["sessionId"] as? String, "")
+        XCTAssertEqual(json?["timeoutMs"] as? Int64, 0)
+        XCTAssertEqual(json?["keep"] as? Bool, false)
     }
 
     private func makeBridge(
@@ -601,32 +603,24 @@ final class ConformanceCoreBaselineTests: XCTestCase {
             return object
         }
 
-        // 应该收到 3 帧响应
+        // 应该收到 3 帧响应；count 不足时后续下标访问直接 trap（显式失败
+        // 优于静默越守卫跳过），count 足够时以下断言给出帧序/payload 细节
         XCTAssertEqual(responses.count, 3, "Should receive 3 async responses")
 
-        // 验证第一帧
-        if responses.count >= 1 {
-            XCTAssertEqual(responses[0]["done"] as? Bool, false)
-            XCTAssertEqual(responses[0]["ok"] as? Bool, true)
-            let payload1 = responses[0]["payload"] as? [String: Any]
-            XCTAssertEqual(payload1?["frame"] as? Double, 1.0)
-        }
+        XCTAssertEqual(responses[0]["done"] as? Bool, false)
+        XCTAssertEqual(responses[0]["ok"] as? Bool, true)
+        let payload1 = responses[0]["payload"] as? [String: Any]
+        XCTAssertEqual(payload1?["frame"] as? Double, 1.0)
 
-        // 验证第二帧
-        if responses.count >= 2 {
-            XCTAssertEqual(responses[1]["done"] as? Bool, false)
-            XCTAssertEqual(responses[1]["ok"] as? Bool, true)
-            let payload2 = responses[1]["payload"] as? [String: Any]
-            XCTAssertEqual(payload2?["frame"] as? Double, 2.0)
-        }
+        XCTAssertEqual(responses[1]["done"] as? Bool, false)
+        XCTAssertEqual(responses[1]["ok"] as? Bool, true)
+        let payload2 = responses[1]["payload"] as? [String: Any]
+        XCTAssertEqual(payload2?["frame"] as? Double, 2.0)
 
-        // 验证最终帧
-        if responses.count >= 3 {
-            XCTAssertEqual(responses[2]["done"] as? Bool, true)
-            XCTAssertEqual(responses[2]["ok"] as? Bool, true)
-            let payload3 = responses[2]["payload"] as? [String: Any]
-            XCTAssertEqual(payload3?["frame"] as? Double, 3.0)
-        }
+        XCTAssertEqual(responses[2]["done"] as? Bool, true)
+        XCTAssertEqual(responses[2]["ok"] as? Bool, true)
+        let payload3 = responses[2]["payload"] as? [String: Any]
+        XCTAssertEqual(payload3?["frame"] as? Double, 3.0)
     }
 
     func testC48_protocolMethods_autoMergedIntoWhitelist() {
@@ -1089,6 +1083,24 @@ final class ConformanceCoreBaselineTests: XCTestCase {
             messageJson: requestJson(id: "r65b", method: "not.in.whitelist", sessionId: sessionId, payload: [:])
         )
         XCTAssertEqual(errorCode(from: denied), "E_SESSION_INVALID")
+    }
+
+    func testC66_defaultSessionTtl_24Hours_lockedAcrossPlatforms() {
+        // C66：docs/09 —— session 默认 TTL 四端一致性锁定（此前无任何用例断言默认值，
+        // 四端漂移无 gate 可拦）。默认 24h 为体验兜底而非法定期限（docs/03 §3.5），
+        // 时效敏感宿主应显式收紧 sessionTtlMs。
+        XCTAssertEqual(JsBridge.SecurityConfig.defaultSessionTtlMs, 24 * 60 * 60 * 1000)
+
+        // 未显式配置 sessionTtlMs 的 SecurityConfig：握手响应反馈默认值
+        let bridge = makeBridge()
+        bridge.resetPageInstance()
+        let response = bridge.processIncoming(
+            messageJson: requestJson(id: "h66", method: BridgeApiContract.methodHandshake, sessionId: "", payload: [:]),
+            origin: "file://"
+        )
+        let payload = object(from: response)?["payload"] as? [String: Any]
+        let ttl = payload?["sessionTtlMs"] as? Double ?? (payload?["sessionTtlMs"] as? Int).map(Double.init)
+        XCTAssertEqual(ttl, Double(24 * 60 * 60 * 1000))
     }
 
     // MARK: - SecurityConfig nil 字段构造校验（init precondition，子进程探针）

@@ -31,8 +31,9 @@ void main() {
 
       expect(response['ok'], isTrue);
       expect((payload['sessionId'] as String).isNotEmpty, isTrue);
-      expect(payload.containsKey('sessionTtlMs'), isTrue);
-      expect(payload.containsKey('policyVersion'), isTrue);
+      // 值与类型断言（而非仅 containsKey）：TTL 为四端默认毫秒值，policyVersion 默认 "v1"
+      expect(payload['sessionTtlMs'], 86400000);
+      expect(payload['policyVersion'], 'v1');
       expect(payload['origin'], 'file://');
       expect(payload['accepted'], isTrue);
     });
@@ -1129,6 +1130,30 @@ void main() {
         messageJson: requestJson('r65b', 'not.in.whitelist', sessionId),
       );
       expect(errorCode(diffOriginResponses.single), 'E_SESSION_INVALID');
+    });
+
+    test('C66_defaultSessionTtl_24Hours_lockedAcrossPlatforms', () async {
+      // C66：docs/09 —— session 默认 TTL 四端一致性锁定（此前无任何用例断言默认值，
+      // 四端漂移无 gate 可拦）。默认 24h 为体验兜底而非法定期限（docs/03 §3.5），
+      // 时效敏感宿主应显式收紧 sessionTtlMs。
+      expect(SecurityConfig.defaultSessionTtlMs, 24 * 60 * 60 * 1000);
+
+      // 未显式配置 sessionTtlMs 的 SecurityConfig：握手响应反馈默认值
+      final JsBridge bridge = JsBridge(
+        securityConfig: SecurityConfig(
+          allowedOrigins: <String>{'file://'},
+          methodWhitelist: <String>{'bridge.handshake', 'echo'},
+        ),
+        transport: (String _) async => true,
+        pageContextProvider: FixedOriginProvider('file://'),
+      );
+      bridge.resetPageInstance();
+      final Map<String, dynamic> payload = parse(
+        (await bridge.processIncomingResponses(
+          messageJson: requestJson('h66', 'bridge.handshake', ''),
+        )).single,
+      )['payload'] as Map<String, dynamic>;
+      expect(payload['sessionTtlMs'], 24 * 60 * 60 * 1000);
     });
 
     // 配置拷贝快照：宿主构造后 mutate 传入的 allowedOrigins Set

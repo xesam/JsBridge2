@@ -109,7 +109,7 @@ export class JsBridge {
     const config: SecurityConfig | null = options.securityConfig ?? null;
     this.securityConfig = config;
     this.policyVersion = config?.policyVersion ?? 'v1';
-    this.sessionTtlMs = config?.sessionTtlMs ?? 15 * 60 * 1000;
+    this.sessionTtlMs = config?.sessionTtlMs ?? 24 * 60 * 60 * 1000;
     this.pageContextProvider = options.pageContextProvider ?? null;
     this.core = new CoreBridge(options.transport);
 

@@ -51,10 +51,13 @@ export default function sessionServiceTest(): void {
     });
 
     it('clearAll_removesAllSessions', 0, () => {
+      // 两个 session 绑定不同 pageInstanceId——同 context 连续 issue 会触发
+      // C61 刷新语义使 rec1 提前失效，对 clearAll 的断言就失去证伪力
       const service = new SessionService();
-      const ctx = new TrustedPageContext('file://', 'page-1');
-      const rec1 = service.issue(ctx, 60000);
-      const rec2 = service.issue(ctx, 60000);
+      const ctxA = new TrustedPageContext('file://', 'page-1');
+      const ctxB = new TrustedPageContext('file://', 'page-2');
+      const rec1 = service.issue(ctxA, 60000);
+      const rec2 = service.issue(ctxB, 60000);
 
       service.clearAll();
 

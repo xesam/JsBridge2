@@ -274,11 +274,14 @@ export function createNativeTransport(options?: ChannelOptions): NativeTransport
         if (!event.ports || !event.ports[0]) { return }
         const deliveredPort = event.ports[0]
         // 投递信任边界（docs/06 §2.2 / docs/09 C59）：bridge:channel 投递只能来自
-        // Native 经由主 frame 的注入通道——采纳前必须校验 event.source === window
-        //（投递源只能是主 frame 自身）。跨域 iframe 构造的同形事件（source 为
-        // iframe 的 window）一律拒绝：关闭其携带端口、不采纳、reqId 路径不受劫持。
+        // Native 经由主 frame 的注入通道——采纳前必须校验投递源：event.source 为
+        // 主 frame 自身（window.postMessage 形态）或 null（native postWebMessage 形态，
+        // Android WebView 经 postWebMessage 投递的 MessageEvent source 恒为 null）。
+        // 页面脚本无法伪造 source：window.postMessage 的 source 恒为发送方 window，
+        // iframe 构造的同形事件 source 为 iframe 的 window（既非 window 亦非 null）
+        // 一律拒绝：关闭其携带端口、不采纳、reqId 路径不受劫持。
         // reqId 是配对凭证而非信任凭证——它可能经 console 等途径泄露，绝不单独作为采纳依据。
-        if (event.source !== window) {
+        if (event.source !== window && event.source !== null) {
             deliveredPort.close()
             return
         }

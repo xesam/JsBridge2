@@ -74,6 +74,11 @@ class FlutterBridgeController with WidgetsBindingObserver {
   bool _timerRunning = false;
   int _timerCounter = 0;
   Timer? _activeTimer;
+  ResponseEmitter? _timerStreamEmitter;
+  /// 定位单飞守卫（与 Android `GetCurrentLocationPlugin.requesting` / iOS
+  /// `locationResultCompletion` 同语义）：进行中再来一次 → E_BUSY，
+  /// 避免 web 侧连续触发把并发定位压进平台定位栈。
+  bool _locationRequestInFlight = false;
   final ImagePicker _imagePicker = ImagePicker();
 
   Future<void> load() {
@@ -152,9 +157,28 @@ class FlutterBridgeController with WidgetsBindingObserver {
       if (emitter == null) return;
 
       if (action == 'stop') {
+        if (!_timerRunning) {
+          await emitter(
+            const Result<dynamic, BridgeError>.success(
+              <String, dynamic>{'event': 'stopped', 'running': false},
+            ),
+            true,
+          );
+          return;
+        }
         _timerRunning = false;
         _activeTimer?.cancel();
         _activeTimer = null;
+        final ResponseEmitter? previousStreamEmitter = _timerStreamEmitter;
+        _timerStreamEmitter = null;
+        if (previousStreamEmitter != null) {
+          await previousStreamEmitter(
+            const Result<dynamic, BridgeError>.success(
+              <String, dynamic>{'event': 'stopped', 'running': false},
+            ),
+            true,
+          );
+        }
         await emitter(
           const Result<dynamic, BridgeError>.success(
             <String, dynamic>{'event': 'stopped', 'running': false},
@@ -178,18 +202,14 @@ class FlutterBridgeController with WidgetsBindingObserver {
       }
 
       _timerRunning = true;
+      // 持有 start 请求的流 emitter，stop 时向它补发 stopped 终止帧（对齐 Android TimerExt / HarmonyOS）
+      _timerStreamEmitter = emitter;
 
       // 启动后台 Timer 实现真正的无限 streaming
       _activeTimer = Timer.periodic(const Duration(seconds: 1), (Timer timer) async {
         if (!_timerRunning) {
           timer.cancel();
           _activeTimer = null;
-          await emitter(
-            const Result<dynamic, BridgeError>.success(
-              <String, dynamic>{'event': 'stopped', 'running': false},
-            ),
-            true,
-          );
           return;
         }
 
@@ -303,69 +323,98 @@ class FlutterBridgeController with WidgetsBindingObserver {
       final Map<String, dynamic> object = _asMap(payload);
       final String accuracy = (object['accuracy'] as String?) ?? 'coarse';
       final int timeoutMs = (object['timeoutMs'] as num?)?.toInt() ?? 10000;
-      final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
+      if (_locationRequestInFlight) {
         return const BridgeHandlerResult.failure(
           BridgeError(
-            code: 'E_LOCATION_UNAVAILABLE',
-            message: 'Location services disabled',
+            code: 'E_BUSY',
+            message: 'location request is already in progress',
           ),
         );
       }
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied) {
-        return const BridgeHandlerResult.failure(
-          BridgeError(
-            code: 'E_PERMISSION_DENIED',
-            message: 'Location permission denied',
-          ),
-        );
-      }
-      if (permission == LocationPermission.deniedForever) {
-        return BridgeHandlerResult.failure(
-          BridgeError(
-            code: 'E_PERMISSION_PERMANENTLY_DENIED',
-            message: 'Location permission permanently denied',
-            details: <String, dynamic>{'canOpenSettings': true},
-          ),
-        );
-      }
-
+      _locationRequestInFlight = true;
       try {
-        final LocationSettings settings = LocationSettings(
-          accuracy: accuracy == 'fine'
-              ? LocationAccuracy.best
-              : LocationAccuracy.medium,
-          timeLimit: Duration(milliseconds: timeoutMs),
-        );
-        final Position position = await Geolocator.getCurrentPosition(
-          locationSettings: settings,
-        );
-        return BridgeHandlerResult.success(<String, dynamic>{
-          'lat': position.latitude,
-          'lng': position.longitude,
-          'accuracy': position.accuracy,
-          'provider': accuracy == 'fine' ? 'fine' : 'coarse',
-          'timestamp':
-              position.timestamp.millisecondsSinceEpoch,
-        });
-      } on TimeoutException {
-        return const BridgeHandlerResult.failure(
-          BridgeError(code: 'E_INTERNAL', message: 'Location request timeout'),  // 返回 E_INTERNAL 而非 E_TIMEOUT——E_TIMEOUT 为 JS 本地码，不跨端传输（docs/03 §8）
-        );
-      } catch (error) {
-        return BridgeHandlerResult.failure(
-          BridgeError(
-            code: 'E_LOCATION_UNAVAILABLE',
-            message: error.toString(),
-          ),
-        );
+        final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        if (!serviceEnabled) {
+          return const BridgeHandlerResult.failure(
+            BridgeError(
+              code: 'E_LOCATION_UNAVAILABLE',
+              message: 'Location services disabled',
+            ),
+          );
+        }
+
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+        }
+        if (permission == LocationPermission.denied) {
+          return const BridgeHandlerResult.failure(
+            BridgeError(
+              code: 'E_PERMISSION_DENIED',
+              message: 'Location permission denied',
+            ),
+          );
+        }
+        if (permission == LocationPermission.deniedForever) {
+          return BridgeHandlerResult.failure(
+            BridgeError(
+              code: 'E_PERMISSION_PERMANENTLY_DENIED',
+              message: 'Location permission permanently denied',
+              details: <String, dynamic>{'canOpenSettings': true},
+            ),
+          );
+        }
+
+        // 最近一次定位快路径（与 Android findLastKnownLocation / iOS manager.location 对齐）：
+        // 命中即返回，不等新解——否则"当前无可用新解"（室内/冷启动）必然等满原生预算，
+        // 而原生预算不短于 JS 声明时限时，用户只会看到 JS 侧的 E_TIMEOUT。
+        // Position 不暴露底层 provider 名，故 coarse/fine 共用同一次最近定位查询
+        // （Android 侧按精度分摊 GPS/NETWORK/PASSIVE 的取舍在此不适用）。
+        final Position? lastKnown = await Geolocator.getLastKnownPosition();
+        if (lastKnown != null) {
+          return BridgeHandlerResult.success(_locationPayload(lastKnown));
+        }
+
+        try {
+          final LocationSettings settings = LocationSettings(
+            accuracy: accuracy == 'fine'
+                ? LocationAccuracy.best
+                : LocationAccuracy.medium,
+            timeLimit: Duration(milliseconds: timeoutMs),
+          );
+          final Position position = await Geolocator.getCurrentPosition(
+            locationSettings: settings,
+          );
+          return BridgeHandlerResult.success(_locationPayload(position));
+        } on TimeoutException {
+          return const BridgeHandlerResult.failure(
+            BridgeError(code: 'E_INTERNAL', message: 'Location request timeout'),  // 返回 E_INTERNAL 而非 E_TIMEOUT——E_TIMEOUT 为 JS 本地码，不跨端传输（docs/03 §8）
+          );
+        } catch (error) {
+          return BridgeHandlerResult.failure(
+            BridgeError(
+              code: 'E_LOCATION_UNAVAILABLE',
+              message: error.toString(),
+            ),
+          );
+        }
+      } finally {
+        _locationRequestInFlight = false;
       }
     });
+  }
+
+  /// 定位响应 payload——字段集与 Android `toPayload` / iOS 响应体一致。
+  /// provider 报告**来源**而非请求精度：`Position` 不暴露底层 provider 名，
+  /// 故给出插件来源标签（对照 iOS 的 'core-location' / 'simulated'）。
+  static Map<String, dynamic> _locationPayload(Position position) {
+    return <String, dynamic>{
+      'lat': position.latitude,
+      'lng': position.longitude,
+      'accuracy': position.accuracy,
+      'provider': position.isMocked ? 'simulated' : 'geolocator',
+      'timestamp': position.timestamp.millisecondsSinceEpoch,
+    };
   }
 
   Future<void> _sendToWeb(String messageJson) {

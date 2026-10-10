@@ -5,22 +5,22 @@
 
 ## 1 目的
 
-定义 JS-Native bridge 协议行为的跨端验收标准。所有平台实现必须通过全部用例。合规 = 通过 C01–C65（含 C04b，为 C04 的补充用例；C42/C58/C59 属宿主 instrumented 层，随宿主接入套件执行）。
+定义 JS-Native bridge 协议行为的跨端验收标准。所有平台实现必须通过全部用例。合规 = 通过 C01–C66（含 C04b，为 C04 的补充用例；C42/C58/C59 属宿主 instrumented 层，随宿主接入套件执行）。
 
 ## 2 用例格式
 
 每条用例包含以下字段：
 
-- **id**：唯一标识符（C01–C65，含补充用例 C04b）
+- **id**：唯一标识符（C01–C66，含补充用例 C04b）
 - **名称**：简短描述该用例验证的行为
 - **前置条件**：执行该用例时 bridge 的初始状态
 - **输入**：触发行为的操作或消息
 - **期望输出**：通过验收的可观测结果
 - **覆盖层**：Native core / JS client / 宿主 instrumented / Android host 四类之一（以 §3 各行「覆盖层」列的登记为准）
 
-## 3 验收用例（C01–C65）
+## 3 验收用例（C01–C66）
 
-### Native core（C01–C13, C17, C18, C28–C30, C33–C38, C48, C49, C51–C56, C60, C61, C62, C64, C65）
+### Native core（C01–C13, C17, C18, C28–C30, C33–C38, C48, C49, C51–C56, C60, C61, C62, C64–C66）
 
 | 用例 | 名称 | 前置条件 | 输入 | 期望输出 | 覆盖层 |
 |------|------|----------|------|----------|--------|
@@ -61,6 +61,7 @@
 | C62 | async handler 启动即返，不阻塞入站管线 | JsBridge（无配置或完成握手）+ transport mock；注册 Async handler `busy`（发射 `done=false` 首帧后挂起、不收尾）+ Simple handler `ping` | 发起 `busy` 请求 r1 → busy 首帧发出后，发起 `ping` 请求 r2 | r2 的 `done=true` 单帧响应在 busy 挂起期间已写入 transport——dispatch 不因流式 handler 未完成而阻塞后续消息（四端统一"启动即返"语义；HarmonyOS 曾为唯一内联 await 实现，已对齐）；r1 除首帧外无终帧逃逸 | Native core |
 | C64 | Tier-1 kind 路由守卫：非 request 信封不派发 | standalone CoreBridge（不经策略链）+ transport mock，注册 Simple handler `leak.test` | 以 kind=response / kind=event 信封（method 与注册表同名）直接 dispatch；再以 kind=request 对照 | 非 request 信封： handler 零调用、零响应帧产出（丢弃而非按 method 派发——Tier-2 路径由 RequestShapePolicy 先行拒绝，本用例锚定 standalone 面）；对照 request 正常单帧响应 | Native core |
 | C65 | 通配 `*` 使 Origin/MethodGate 节点不进链（真实装配面） | 真实 `JsBridge` 装配：`SecurityConfig` 非 null 且 `allowedOrigins`/`methodWhitelist` 均为 `{"*"}`；注册业务 handler；context provider 供任意未白名单 origin | 握手（origin=任意）→ 已注册但白名单外的业务方法请求（同 origin）→ 换 context origin 后复用该 sessionId 请求 | 握手 `ok=true`；白名单外方法请求 `ok=true`（Origin/MethodGate 均未进链——通配是"节点不装配"而非"装配后对齐放行"，非通配配置下同输入为 E_ORIGIN_DENY/E_METHOD_NOT_ALLOWED，锚定装配逻辑而非手拼链）；换 origin 后 `ok=false`、`E_SESSION_INVALID`（SessionPolicy 仍在链——通配只豁免对应维度，不影响 session origin 匹配。2026-09-26 前 Origin/MethodGate 的通配排除分支四端均为"代码为真、无用例锁定"，本用例收口该缺口） | Native core |
+| C66 | session 默认 TTL 四端一致性锁定 | 未显式配置 `sessionTtlMs` 的 `SecurityConfig` | 断言配置默认常量 + 发起 `bridge.handshake` | 常量 = `86400000`（24 小时）；握手响应 payload 的 `sessionTtlMs` 同为 `86400000`。默认值为体验兜底而非法定期限（docs/03 §3.5），时效敏感宿主应显式收紧；此前四端默认值无任何用例锁定，漂移不可拦——本用例收口该项 | Native core |
 
 > **C35 语义说明**：`methodWhitelist` 为**业务方法白名单**——协议方法（`bridge.handshake` / `bridge.cancelScope`）由框架在装配期自动并入放行集，宿主无需显式列入（显式列入亦合法，冗余无副作用；C37 保留显式列入写法，恰构成向后兼容断言）。C35 期望输出为"ok=true"。见 `docs/03-protocol.md §7.1 / §9`。
 
@@ -122,21 +123,21 @@
 
 ### 建链安全边界用例（C58–C59，宿主 instrumented）
 
-> 与 C42 同层：依赖真机/WebView/DOM 环境，不在四端纯 JVM 基线内（C42/C58 无可执行断言，由 `scripts/check_conformance_ids.sh` 的 `INSTRUMENTED_ONLY` 显式豁免；C59 的代码侧断言已并入 Node conformance 的 C40/C41 内联断言——伪造投递端口必被关闭，无需豁免）。落点断言属**已登记缺口**：宿主 instrumented 接入套件尚未建设（仓库内当前无可执行 C58 的 UI/仪器测试），隔离逻辑代码侧已存在（iOS `WKWebViewBridgeTransport` 的 `frameInfo.isMainFrame` 门控 + `forMainFrameOnly` bootstrap 注入）。instrumented 级完整断言随宿主套件建成后落地。
+> 与 C42 同层：依赖真机/WebView/DOM 环境，不在四端纯 JVM 基线内（C42/C58 无可执行断言，由 `scripts/check_conformance_ids.sh` 的 `INSTRUMENTED_ONLY` 显式豁免；C59 的代码侧断言已并入 Node conformance 的 C40/C41 内联断言——伪造投递端口必被关闭、两种合法投递形态必被采纳，无需豁免）。落点断言属**已登记缺口**：宿主 instrumented 接入套件尚未建设（仓库内当前无可执行 C58 的 UI/仪器测试），隔离逻辑代码侧已存在（iOS `WKWebViewBridgeTransport` 的 `frameInfo.isMainFrame` 门控 + `forMainFrameOnly` bootstrap 注入）。instrumented 级完整断言随宿主套件建成后落地。
 
 | 用例 | 名称 | 前置条件 | 输入 | 期望输出 | 覆盖层 |
 |------|------|----------|------|----------|--------|
 | C58 | iOS 非主 frame bridge 消息被拒收 | WKWebView 加载含可信主 frame + 跨域 iframe 的页面，宿主接入 `WKWebViewBridgeTransport` | iframe 内调用 `window.webkit.messageHandlers.<NativeBridge>.postMessage(...)` 伪造 bridge 信封 | 消息被丢弃（`frameInfo.isMainFrame` 门控），不产生响应、不触发握手；bootstrap 脚本仅注入主 frame（`forMainFrameOnly: true`），iframe 中不存在 `NativeBridge` handler | 宿主 instrumented（需 WKWebView，swift 基线无法构造 `WKScriptMessage`） |
-| C59 | MessagePort 采纳校验投递来源 | 页面含第三方 iframe，已发起 `requestBridgeChannel`（reqId 泄露给 iframe） | 恶意 iframe 构造携带匹配 reqId 的 `bridge:channel` MessageEvent，投递自身 MessagePort | 采纳前校验 `event.source`（投递源必须是主 frame 自身，reqId 仅作配对凭证不作信任凭证），不匹配 → 端口关闭不采纳、请求路径不受劫持（docs/03 §9 细则 5 / docs/06 §2.2 投递信任边界） | 宿主 instrumented（需 DOM MessagePort/MessageEvent，Node conformance 无法模拟） |
+| C59 | MessagePort 采纳校验投递来源 | 页面含第三方 iframe，已发起 `requestBridgeChannel`（reqId 泄露给 iframe） | 恶意 iframe 构造携带匹配 reqId 的 `bridge:channel` MessageEvent，投递自身 MessagePort；另含两种**合法**投递形态：`source === window`（`window.postMessage` 型）与 `source === null`（native 投递型——Android `WebView.postWebMessage` 无发送方 window） | 采纳前校验 `event.source`（仅 `window` / `null` 合法，reqId 仅作配对凭证不作信任凭证），不匹配 → 端口关闭不采纳、请求路径不受劫持；两种合法形态必须采纳（docs/03 §9 细则 5 / docs/06 §2.2 投递信任边界） | 宿主 instrumented（需 DOM MessagePort/MessageEvent，Node conformance 无法模拟）；代码侧断言（含合法形态采纳）已并入 Node conformance 的 C40/C41 内联断言 |
 
 ## 4 各端实现覆盖
 
 | 平台 | Native core 测试 | JS client 测试 | 覆盖 |
 |------|-----------------|----------------|------|
-| Android | `js_bridge_android/js-bridge-core/src/test/java/.../ConformanceCoreBaselineTest.java`（另有 `UnifiedHandlerApiTest` 承载 C43、`PendingChannelRequestsTest` 承载 C47、`PolicyGroupsTest` 承载 C45/C46） | `js_bridge_android/js-bridge-example/src/test/js/bridge-client-conformance.cases.js` | C01–C08（含 C04b）, C10–C13, C17, C18, C28–C30, C33–C38, C43, C45–C49, C51–C56, C60, C61, C62, C64, C65, C14–C16, C19–C27, C31, C32, C39, C40, C41, C50, C57, C63 |
-| iOS | `js_bridge_ios/js-bridge-core-swift/Tests/BridgeCoreTests/ConformanceCoreBaselineTests.swift`（另有 `PolicyChainTests` 承载 C45/C46） | `js_bridge_ios/js-bridge-example/tests/js/bridge-client-conformance.cases.js` | C01–C08（含 C04b）, C10–C13, C17, C18, C28–C30, C33–C38, C43, C45, C46, C48, C49, C51–C56, C60, C61, C62, C64, C65, C14–C16, C19–C27, C31, C32, C39, C40, C41, C50, C57, C63 |
-| Flutter | `js_bridge_flutter/packages/js_bridge_core/test/conformance_core_baseline_test.dart`（另有 `policy_chain_test.dart` 承载 C45/C46） | `js_bridge_flutter/tests/js/bridge-client-conformance.cases.js` | C01–C08（含 C04b）, C10–C13, C17, C18, C28–C30, C33–C38, C43, C45, C46, C48, C49, C51–C56, C60, C61, C62, C64, C65, C14–C16, C19–C27, C31, C32, C39, C40, C41, C50, C57, C63 |
-| HarmonyOS | `js_bridge_harmony/js-bridge-core/src/test/ConformanceCoreBaseline.test.ets` + `PolicyGroupsTest.test.ets`（真机 hypium 执行：`bash scripts/test_harmony.sh` 同步到 example ohosTest 后经 hdc 安装运行） | `js_bridge_harmony/tests/js/bridge-client-conformance.cases.js` | C01–C08（含 C04b）, C10–C13, C17, C18, C28–C30, C33–C38, C43, C45, C46, C48, C49, C51–C56, C60, C61, C62, C64, C65, C14–C16, C19–C27, C31, C32, C39, C40, C41, C50, C57, C63（JS client） |
+| Android | `js_bridge_android/js-bridge-core/src/test/java/.../ConformanceCoreBaselineTest.java`（另有 `UnifiedHandlerApiTest` 承载 C43、`PendingChannelRequestsTest` 承载 C47、`PolicyGroupsTest` 承载 C45/C46） | `js_bridge_android/js-bridge-example/src/test/js/bridge-client-conformance.cases.js` | C01–C08（含 C04b）, C10–C13, C17, C18, C28–C30, C33–C38, C43, C45–C49, C51–C56, C60, C61, C62, C64, C65, C66, C14–C16, C19–C27, C31, C32, C39, C40, C41, C50, C57, C63 |
+| iOS | `js_bridge_ios/js-bridge-core-swift/Tests/BridgeCoreTests/ConformanceCoreBaselineTests.swift`（另有 `PolicyChainTests` 承载 C45/C46） | `js_bridge_ios/js-bridge-example/tests/js/bridge-client-conformance.cases.js` | C01–C08（含 C04b）, C10–C13, C17, C18, C28–C30, C33–C38, C43, C45, C46, C48, C49, C51–C56, C60, C61, C62, C64, C65, C66, C14–C16, C19–C27, C31, C32, C39, C40, C41, C50, C57, C63 |
+| Flutter | `js_bridge_flutter/packages/js_bridge_core/test/conformance_core_baseline_test.dart`（另有 `policy_chain_test.dart` 承载 C45/C46） | `js_bridge_flutter/tests/js/bridge-client-conformance.cases.js` | C01–C08（含 C04b）, C10–C13, C17, C18, C28–C30, C33–C38, C43, C45, C46, C48, C49, C51–C56, C60, C61, C62, C64, C65, C66, C14–C16, C19–C27, C31, C32, C39, C40, C41, C50, C57, C63 |
+| HarmonyOS | `js_bridge_harmony/js-bridge-core/src/test/ConformanceCoreBaseline.test.ets` + `PolicyGroupsTest.test.ets`（真机 hypium 执行：`bash scripts/test_harmony.sh` 同步到 example ohosTest 后经 hdc 安装运行） | `js_bridge_harmony/tests/js/bridge-client-conformance.cases.js` | C01–C08（含 C04b）, C10–C13, C17, C18, C28–C30, C33–C38, C43, C45, C46, C48, C49, C51–C56, C60, C61, C62, C64, C65, C66, C14–C16, C19–C27, C31, C32, C39, C40, C41, C50, C57, C63（JS client） |
 
 > **C43 的平台差异**：Android 的 `AsyncHandler` 在 `dispatch()` 内**同步**执行，帧在 `deliver()` 返回前到达 transport；iOS/Flutter/HarmonyOS 需等待异步回调。C43 断言的是**帧序列与 done 语义**（跨端契约），执行时机差异不属于协议。HarmonyOS 的帧经 `bindTransport()` 路径发出——`processIncomingResponses` 的返回值不包含 emitter 推送的帧。
 >
@@ -184,11 +185,11 @@ node js_bridge_harmony/tests/js/bridge-client-conformance.cases.js
 | Session 生命周期 | `resetPageInstance` 失效语义、origin/pageInstanceId 匹配 | 失效后旧 session 拒绝 |
 | Transport 信道 | `bindTransport`/`resetTransport`、reqId 相关性 | 投递采纳 + 陈旧投递丢弃 |
 | Handler 注册契约 | 注册入口增删、handler 形参形态变更、重复注册语义 | 注册后行为断言（如 C49 重复注册覆盖） |
-| 新增平台 | 第五端实现 | 全套 C01–C65 |
+| 新增平台 | 第五端实现 | 全套 C01–C66 |
 
 ### 6.2 编号规则
 
-1. **编号不得复用**。新增用例取当前最大编号 +1（当前最大为 **C65**；该「自称最大」与 §3 登记表实际最大的一致性由 `scripts/check_conformance_ids.sh` 的校验④强制约束）。补充用例用 `b` 后缀（如 C04b）。已释放/空缺的编号（**C09、C44**）不再分配。
+1. **编号不得复用**。新增用例取当前最大编号 +1（当前最大为 **C66**；该「自称最大」与 §3 登记表实际最大的一致性由 `scripts/check_conformance_ids.sh` 的校验④强制约束）。补充用例用 `b` 后缀（如 C04b）。已释放/空缺的编号（**C09、C44**）不再分配。
 2. **先登记后实现**。编号必须先写入本文件 §3 表格，再在四端实现。禁止代码中出现未登记的编号——C43 的缺口即由此产生。
 3. **四端同步**。新增用例必须在四端全部实现，或在本文件 §4 显式登记缺口。**未登记缺口即视为不合规。**
 4. **缺口须登记**。若某端暂时无法实现（如 C42 依赖 instrumented 环境），必须注明原因与落点：instrumented 层缺口登记于 §3 登记表的覆盖层列与所属分节引言（如 C42/C58）；单端专有缺口另在 §4 覆盖表的平台差异注记登记（如 C47）。
@@ -202,7 +203,7 @@ node js_bridge_harmony/tests/js/bridge-client-conformance.cases.js
 | Flutter | `C45_scenario_expectedBehavior` | `packages/js_bridge_core/test/` |
 | HarmonyOS | `C45_scenario_expectedBehavior` | `js-bridge-core/src/test/` |
 
-> **Android 前缀现状**：`scripts/check_conformance_ids.sh` 以 `[Cc]` 模式提取并统一大小写，`C`/`c` 两种前缀均被兼容。存量 `ConformanceCoreBaselineTest` 中 C01–C49 用例为旧式大写 `C` 前缀、C51–C65 用例为小写 `c` 前缀（新旧共存）；策略链/UnifiedHandlerApi 等独立承载文件（`PolicyGroupsTest`、`UnifiedHandlerApiTest`、`PendingChannelRequestsTest`）统一用小写 `c` 前缀（如 `c45_policyChain_evaluatesInFixedOrder_requestShapeFirst`、`c43_asyncHandler_...`、`c47_offerBeforeBind_...`）。**新增用例统一用小写 `c` 前缀**（如 `c45_scenario_expectedBehavior`）。
+> **Android 前缀现状**：`scripts/check_conformance_ids.sh` 以 `[Cc]` 模式提取并统一大小写，`C`/`c` 两种前缀均被兼容。存量 `ConformanceCoreBaselineTest` 中 C01–C49 用例为旧式大写 `C` 前缀、C51–C66 用例为小写 `c` 前缀（新旧共存）；策略链/UnifiedHandlerApi 等独立承载文件（`PolicyGroupsTest`、`UnifiedHandlerApiTest`、`PendingChannelRequestsTest`）统一用小写 `c` 前缀（如 `c45_policyChain_evaluatesInFixedOrder_requestShapeFirst`、`c43_asyncHandler_...`、`c47_offerBeforeBind_...`）。**新增用例统一用小写 `c` 前缀**（如 `c45_scenario_expectedBehavior`）。
 
 ### 6.4 验证
 
