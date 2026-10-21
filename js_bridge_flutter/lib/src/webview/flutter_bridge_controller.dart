@@ -332,19 +332,14 @@ class FlutterBridgeController with WidgetsBindingObserver {
         );
       }
       _locationRequestInFlight = true;
+      // 权限先行（对齐 Android / HarmonyOS 参考实现）；unableToDetermine 亦触发弹框
+      // （iOS notDetermined 映射为此值，跳过会让权限永不落地）。
+      // 不做 isLocationServiceEnabled 预门控：fused usable 标志受授权/GMS 状态影响，
+      // CN-ROM 授权后仍可能返回 false；开关真实关闭由下方 LocationServiceDisabledException 兜底。
       try {
-        final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-        if (!serviceEnabled) {
-          return const BridgeHandlerResult.failure(
-            BridgeError(
-              code: 'E_LOCATION_UNAVAILABLE',
-              message: 'Location services disabled',
-            ),
-          );
-        }
-
         LocationPermission permission = await Geolocator.checkPermission();
-        if (permission == LocationPermission.denied) {
+        if (permission == LocationPermission.denied ||
+            permission == LocationPermission.unableToDetermine) {
           permission = await Geolocator.requestPermission();
         }
         if (permission == LocationPermission.denied) {
@@ -370,18 +365,28 @@ class FlutterBridgeController with WidgetsBindingObserver {
         // 而原生预算不短于 JS 声明时限时，用户只会看到 JS 侧的 E_TIMEOUT。
         // Position 不暴露底层 provider 名，故 coarse/fine 共用同一次最近定位查询
         // （Android 侧按精度分摊 GPS/NETWORK/PASSIVE 的取舍在此不适用）。
-        final Position? lastKnown = await Geolocator.getLastKnownPosition();
-        if (lastKnown != null) {
-          return BridgeHandlerResult.success(_locationPayload(lastKnown));
-        }
-
         try {
-          final LocationSettings settings = LocationSettings(
-            accuracy: accuracy == 'fine'
-                ? LocationAccuracy.best
-                : LocationAccuracy.medium,
-            timeLimit: Duration(milliseconds: timeoutMs),
-          );
+          final Position? lastKnown = await Geolocator.getLastKnownPosition();
+          if (lastKnown != null) {
+            return BridgeHandlerResult.success(_locationPayload(lastKnown));
+          }
+
+          // Android 强制 LocationManager 路径（对齐参考实现）：
+          // CN-ROM 的 GMS fused 路径不可靠（实测授权后仍失败/挂起）。
+          final LocationSettings settings = Platform.isAndroid
+              ? AndroidSettings(
+                  accuracy: accuracy == 'fine'
+                      ? LocationAccuracy.best
+                      : LocationAccuracy.medium,
+                  timeLimit: Duration(milliseconds: timeoutMs),
+                  forceLocationManager: true,
+                )
+              : LocationSettings(
+                  accuracy: accuracy == 'fine'
+                      ? LocationAccuracy.best
+                      : LocationAccuracy.medium,
+                  timeLimit: Duration(milliseconds: timeoutMs),
+                );
           final Position position = await Geolocator.getCurrentPosition(
             locationSettings: settings,
           );
@@ -389,6 +394,14 @@ class FlutterBridgeController with WidgetsBindingObserver {
         } on TimeoutException {
           return const BridgeHandlerResult.failure(
             BridgeError(code: 'E_INTERNAL', message: 'Location request timeout'),  // 返回 E_INTERNAL 而非 E_TIMEOUT——E_TIMEOUT 为 JS 本地码，不跨端传输（docs/03 §8）
+          );
+        } on PermissionDeniedException {
+          return const BridgeHandlerResult.failure(
+            BridgeError(code: 'E_PERMISSION_DENIED', message: 'Location permission denied'),
+          );
+        } on LocationServiceDisabledException {
+          return const BridgeHandlerResult.failure(
+            BridgeError(code: 'E_LOCATION_UNAVAILABLE', message: 'Location services disabled'),
           );
         } catch (error) {
           return BridgeHandlerResult.failure(
